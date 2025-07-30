@@ -1,0 +1,16 @@
+# Python virtual environment
+.venv*/
+venv*/
+
+# Built distributions
+dist/
+*.whl
+*.tar.gz
+
+# IDE-specific files (example for PyCharm)
+.idea/
+
+# Other common Python ignores
+__pycache__/
+*.pyc
+*.egg-info/
