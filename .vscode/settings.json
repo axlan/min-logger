@@ -8,6 +8,7 @@
     ],
     "python.analysis.typeCheckingMode": "standard",
     "files.associations": {
-        "min_logger.h": "c"
+        "min_logger.h": "c",
+        "_min_logger_gen.h": "c"
     },
 }

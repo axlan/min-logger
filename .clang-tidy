@@ -1,1 +1,1 @@
-Checks: '-*,bugprone-*,modernize-*,readability-*'
+Checks: 'bugprone-*,modernize-*,-modernize-macro-to-enum,readability-*'
