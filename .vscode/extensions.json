@@ -5,6 +5,9 @@
     // List of extensions which should be recommended for users of this workspace.
     "recommendations": [
         "ms-python.pylint",
-        "ms-python.black-formatter"
+        "ms-python.black-formatter",
+        "ms-python.pyright",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools"
     ],
 }

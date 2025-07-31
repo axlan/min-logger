@@ -6,4 +6,8 @@
     "pylint.args": [
         "--rcfile=python/.pylintrc"
     ],
+    "python.analysis.typeCheckingMode": "standard",
+    "files.associations": {
+        "min_logger.h": "c"
+    },
 }
