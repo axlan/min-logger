@@ -80,7 +80,7 @@ def get_file_matches(src_paths: list[Path], extensions: list[str], recursive: bo
     return matches
 
 
-def get_metric_entries(files: list[Path]) -> list[MetricEntryData]:
+def get_metric_entries(files: list[Path], root_paths: list[Path]) -> list[MetricEntryData]:
     """Parse metric macros from source files.
 
     Args:
@@ -89,6 +89,11 @@ def get_metric_entries(files: list[Path]) -> list[MetricEntryData]:
     metrics = []
     for file in files:
         with open(file) as fd:
+            for root in root_paths:
+                try:
+                    file = file.relative_to(root)
+                except ValueError:
+                    pass
             for i, line in enumerate(fd):
                 m = _LOG_METRIC_RE.search(line)
                 if m is not None:
@@ -130,7 +135,12 @@ def write_header(entries: list[MetricEntryData], out_path: Path):
 #if MIN_LOGGER_MIN_LEVEL >= {entry.level}
 
 void min_logger_func_{entry.id}(){{
-    min_logger_write("{entry.msg}");
+    min_logger_format_and_write(MIN_LOGGER_NO_TAGS,
+                                "{entry.source_file}",
+                                {entry.source_line},
+                                "{entry.msg}",
+                                {entry.level},
+                                0);
 }}
 
 #else

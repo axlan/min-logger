@@ -19,6 +19,7 @@ _logger = logging.getLogger("min_logger.builder_main")
 
 def command(
     src_paths: list[Path_dr] | Path_dr,  # pyright: ignore[reportInvalidTypeForm]
+    root_paths: Optional[list[Path_dr] | Path_dr] = None,  # pyright: ignore[reportInvalidTypeForm]
     extensions: list[str] = ["h", "hh", "hpp", "c", "cpp", "cc", "cxx"],
     recursive: bool = True,
     header_output: Optional[Path_fc] = None,  # pyright: ignore[reportInvalidTypeForm]
@@ -37,9 +38,15 @@ def command(
     if not isinstance(src_paths, list):
         src_paths = [src_paths]
     src_paths = [Path(s) for s in src_paths]
+    if root_paths is not None:
+        if not isinstance(root_paths, list):
+            root_paths = [root_paths]
+        root_paths = [Path(s) for s in root_paths]
+    else:
+        root_paths = src_paths
 
     candidate_files = get_file_matches(src_paths, extensions, recursive)
-    entries = get_metric_entries(candidate_files)
+    entries = get_metric_entries(candidate_files, root_paths)
 
     if header_output:
         write_header(entries, header_output)
