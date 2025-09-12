@@ -16,12 +16,15 @@ class MetricType(StrEnum):
     """Identifies type of metric"""
 
     LOG = auto()
+    RECORD_STRING = auto()
+    RECORD_U64 = auto()
+    ENTER = auto()
+    EXIT = auto()
 
 
 class MetricEntryData(NamedTuple):
     """Metric metadata"""
 
-    id: str
     type: MetricType
     source_file: Path
     source_line: int
@@ -41,6 +44,8 @@ def json_dump_helper(obj):
 
 SEVERITY_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40, "CRITICAL": 50}
 
+RESERVED_IDS = {"TID"}
+
 
 def _parse_severity(level_str: str) -> Optional[int]:
     for k, v in SEVERITY_LEVELS.items():
@@ -54,6 +59,14 @@ def _parse_severity(level_str: str) -> Optional[int]:
 
 
 _LOG_METRIC_RE = re.compile(r"MIN_LOGGER_LOG\( *([a-zA-Z0-9_]+) *,(.+), *([a-zA-Z0-9_]+) *\)")
+
+_RECORD_METRIC_RE = re.compile(
+    r"MIN_LOGGER_RECORD_([A-Z0-9]+)\( *([a-zA-Z0-9_]+) *,.+, *([a-zA-Z0-9_]+) *\)"
+)
+
+_ENTER_METRIC_RE = re.compile(r"MIN_LOGGER_ENTER\( *([a-zA-Z0-9_]+) *, *([a-zA-Z0-9_]+) *\)")
+
+_EXIT_METRIC_RE = re.compile(r"MIN_LOGGER_EXIT\( *([a-zA-Z0-9_]+) *, *([a-zA-Z0-9_]+) *\)")
 
 
 def get_file_matches(src_paths: list[Path], extensions: list[str], recursive: bool) -> list[Path]:
@@ -80,13 +93,13 @@ def get_file_matches(src_paths: list[Path], extensions: list[str], recursive: bo
     return matches
 
 
-def get_metric_entries(files: list[Path], root_paths: list[Path]) -> list[MetricEntryData]:
+def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[str, MetricEntryData]:
     """Parse metric macros from source files.
 
     Args:
         files: Source files to scan for MIN_LOGGER macros.
     """
-    metrics = []
+    metrics: dict[str, MetricEntryData] = {}
     for file in files:
         with open(file) as fd:
             for root in root_paths:
@@ -95,59 +108,168 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> list[Metric
                 except ValueError:
                     pass
             for i, line in enumerate(fd):
+                line_num = i + 1
+                location_str = f"{file}:{line_num}"
+
+                metric_type: Optional[MetricType] = None
+                severity_str = ""
+                msg = ""
+                metric_id = ""
+
                 m = _LOG_METRIC_RE.search(line)
                 if m is not None:
-                    line_num = i + 1
-                    location_str = f"{file}:{line_num}"
-                    severity = _parse_severity(m.group(1))
+                    metric_type = MetricType.LOG
+                    severity_str = m.group(1)
+                    msg = m.group(2)
+                    metric_id = m.group(3)
+
+                if metric_type is None:
+                    m = _RECORD_METRIC_RE.search(line)
+                    if m is not None:
+                        if m.group(1) == "STRING":
+                            metric_type = MetricType.RECORD_STRING
+                        elif m.group(1) == "U64":
+                            metric_type = MetricType.RECORD_U64
+                        else:
+                            raise ValueError(
+                                f'No min logging type "{m.group(1)}" in {location_str}.'
+                            )
+                        severity_str = m.group(2)
+                        metric_id = m.group(3)
+
+                if metric_type is None:
+                    m = _ENTER_METRIC_RE.search(line)
+                    if m is not None:
+                        metric_type = MetricType.ENTER
+                        severity_str = m.group(1)
+                        metric_id = m.group(2)
+
+                if metric_type is None:
+                    m = _EXIT_METRIC_RE.search(line)
+                    if m is not None:
+                        metric_type = MetricType.EXIT
+                        severity_str = m.group(1)
+                        metric_id = m.group(2)
+
+                if metric_type is not None:
+                    severity = _parse_severity(severity_str)
                     if severity is None:
                         raise ValueError(
-                            f'Could not parse severiy level "{m.group(1)}" in {location_str}.'
+                            f'Could not parse severiy level "{severity_str}" in {location_str}.'
                         )
-                    msg = m.group(2).strip()
-                    if msg[0] != '"' or msg[-1] != '"':
+
+                    if len(msg) != 0:
+                        msg = msg.strip()
+                        if len(msg) == 0 or msg[0] != '"' or msg[-1] != '"':
+                            raise ValueError(
+                                f'Log message "{msg}" not string literal in {location_str}.'
+                            )
+                        msg = msg[1:-1]
+
+                    if metric_id in RESERVED_IDS:
+                        raise ValueError(f'Can\'t use reserved ID "{metric_id}" in {location_str}.')
+
+                    if metric_id in metrics:
+                        other = metrics[metric_id]
+                        other_location_str = f"{other.source_file}:{other.source_line}"
                         raise ValueError(
-                            f'Log message "{msg}" not string literal in {location_str}.'
+                            f'Duplicate ID "{msg}" in {other_location_str} and {location_str}.'
                         )
-                    msg = msg[1:-1]
-                    metric_id = m.group(3)
-                    metrics.append(
-                        MetricEntryData(
-                            id=metric_id,
-                            type=MetricType.LOG,
-                            source_file=file,
-                            source_line=line_num,
-                            level=severity,
-                            tags=[],
-                            msg=msg,
-                        )
+
+                    metrics[metric_id] = MetricEntryData(
+                        type=metric_type,
+                        source_file=file,
+                        source_line=line_num,
+                        level=severity,
+                        tags=[],
+                        msg=msg,
                     )
+                    continue
 
     return metrics
 
 
-def write_header(entries: list[MetricEntryData], out_path: Path):
+def write_header(entries: dict[str, MetricEntryData], out_path: Path):
     """Generate header file for entries"""
     with open(out_path, "w") as fd:
-        for entry in entries:
-            fd.write(
-                f"""\
-#if MIN_LOGGER_MIN_LEVEL >= {entry.level}
+        fd.write(
+            """\
+#pragma once
+#if MIN_LOGGER_ENABLED
+#include <string.h>
 
-void min_logger_func_{entry.id}(){{
-    min_logger_format_and_write(MIN_LOGGER_NO_TAGS,
-                                "{entry.source_file}",
-                                {entry.source_line},
-                                "{entry.msg}",
-                                {entry.level},
-                                0);
+extern const char** MIN_LOGGER_NO_TAGS;
+"""
+        )
+
+        for metric_id, entry in entries.items():
+            if entry.type in (MetricType.ENTER, MetricType.EXIT, MetricType.LOG):
+                type_string = entry.type.name.lower()
+                fd.write(
+                    f"""\
+static inline void min_logger_{type_string}_func_{metric_id}(){{
+    if (*min_logging_is_verbose()){{
+#if !MIN_LOGGER_DISABLE_VERBOSE_LOGGING
+        min_logger_format_and_write_log(MIN_LOGGER_NO_TAGS,
+                                    "{entry.source_file}",
+                                    {entry.source_line},
+                                    "{entry.msg}",
+                                    {entry.level});
+#else
+    min_logger_write_msg_from_id("{metric_id}", "", 0);
+#endif
+    }}
+    else {{
+        min_logger_write_msg_from_id("{metric_id}", "", 0);
+    }}
 }}
 
+"""
+                )
+            elif entry.type == MetricType.RECORD_STRING:
+                fd.write(
+                    f"""\
+void min_logger_record_string_func_{metric_id}(const char* value){{
+    if (*min_logging_is_verbose()){{
+#if !MIN_LOGGER_DISABLE_VERBOSE_LOGGING
+    // TBD
 #else
-
-void min_logger_func_0(){{}}
-
+    min_logger_write_msg_from_id("{metric_id}", value, strlen(value));
 #endif
+    }}
+    else {{
+        min_logger_write_msg_from_id("{metric_id}", value, strlen(value));
+    }}
+}}
 
 """
-            )
+                )
+            elif entry.type == MetricType.RECORD_U64:
+                fd.write(
+                    f"""\
+void min_logger_record_u64_func_{metric_id}(uint64_t value){{
+    const size_t MAX_LEN = 33;
+    char buffer [MAX_LEN];
+    snprintf(buffer, MAX_LEN, "%lu", value);
+
+    if (*min_logging_is_verbose()){{
+#if !MIN_LOGGER_DISABLE_VERBOSE_LOGGING
+    // TBD
+#else
+    min_logger_write_msg_from_id("{metric_id}", buffer, strlen(buffer));
+#endif
+    }}
+    else {{
+        min_logger_write_msg_from_id("{metric_id}", buffer, strlen(buffer));
+    }}
+}}
+
+"""
+                )
+
+        fd.write(
+            """\
+#endif // MIN_LOGGER_ENABLED
+
+"""
+        )

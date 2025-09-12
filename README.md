@@ -17,7 +17,10 @@ TODO:
 * Add "tags" to categorize metrics to enable. (tags or logger names?)
 * Have generated code look for metric, file, and category allow lists to include metric
 * Add timestamp callback
-
+* Switch weak link functions with registering callback function pointers
+* Allow custimizing timestamp size/precision for basic text implementation
+* Add functions to log scheduler using cores to run tasks and idle (need special hooks into scheduler)
+* Figure out how to handle logging from interrupts. Special functions?
 
 
 # Design Decisions
