@@ -70,13 +70,25 @@ bool* min_logging_is_verbose();
             min_logger_log_func_##id(); \
         }
 
-    #define MIN_LOGGER_RECORD_U64(level, value, id) min_logger_record_u64_func_##id(value)
+    #define MIN_LOGGER_RECORD_U64(level, value, id) \
+        if (MIN_LOGGER_MIN_LEVEL >= level) { \
+            min_logger_record_u64_func_##id(value) \
+        }
 
-    #define MIN_LOGGER_RECORD_STRING(level, value, id) min_logger_record_string_func_##id(value)
+    #define MIN_LOGGER_RECORD_STRING(level, value, id) \
+        if (MIN_LOGGER_MIN_LEVEL >= level) { \
+            min_logger_record_string_func_##id(value) \
+        }
 
-    #define MIN_LOGGER_ENTER(level, id) min_logger_enter_func_##id()
+    #define MIN_LOGGER_ENTER(level, id) \
+        if (MIN_LOGGER_MIN_LEVEL >= level) { \
+            min_logger_enter_func_##id() \
+        }
 
-    #define MIN_LOGGER_EXIT(level, id) min_logger_exit_func_##id()
+    #define MIN_LOGGER_EXIT(level, id) \
+        if (MIN_LOGGER_MIN_LEVEL >= level) { \
+            min_logger_exit_func_##id() \
+        }
 
 #else
     #error "NEED TO IMPLEMENT!"

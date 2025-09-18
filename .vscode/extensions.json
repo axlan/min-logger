@@ -8,6 +8,7 @@
         "ms-python.black-formatter",
         "ms-python.pyright",
         "ms-vscode.cpptools-extension-pack",
-        "ms-vscode.cmake-tools"
+        "ms-vscode.cmake-tools",
+        "platformio.platformio-ide"
     ],
 }

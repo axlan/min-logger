@@ -21,6 +21,8 @@ TODO:
 * Allow custimizing timestamp size/precision for basic text implementation
 * Add functions to log scheduler using cores to run tasks and idle (need special hooks into scheduler)
 * Figure out how to handle logging from interrupts. Special functions?
+* Add option to replace ID's written into C code with incrementing value hex
+* Add ease of use helper to allow log function names to be generated from MACRO defining file name and line number
 
 
 # Design Decisions
