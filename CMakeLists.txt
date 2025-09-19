@@ -32,7 +32,8 @@ endif()
 
 # Define the min_logger library and supporting code.
 add_library(min_logger
-            src/min_logger/min_logger.cpp)
+            src/min_logger/min_logger.cpp
+            )
 target_include_directories(min_logger PUBLIC ${PROJECT_SOURCE_DIR}/src)
 if (MSVC)
     target_compile_definitions(min_logger PRIVATE BUILDING_DLL)

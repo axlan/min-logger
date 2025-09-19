@@ -25,6 +25,7 @@ class MetricType(StrEnum):
 class MetricEntryData(NamedTuple):
     """Metric metadata"""
 
+    bin_id: int
     type: MetricType
     source_file: Path
     source_line: int
@@ -100,6 +101,7 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[str, M
         files: Source files to scan for MIN_LOGGER macros.
     """
     metrics: dict[str, MetricEntryData] = {}
+    bin_id_index = 0
     for file in files:
         with open(file) as fd:
             for root in root_paths:
@@ -177,6 +179,7 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[str, M
                         )
 
                     metrics[metric_id] = MetricEntryData(
+                        bin_id=bin_id_index,
                         type=metric_type,
                         source_file=file,
                         source_line=line_num,
@@ -184,6 +187,7 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[str, M
                         tags=[],
                         msg=msg,
                     )
+                    bin_id_index += 1
                     continue
 
     return metrics
@@ -199,6 +203,8 @@ def write_header(entries: dict[str, MetricEntryData], out_path: Path):
 #include <string.h>
 
 extern const char** MIN_LOGGER_NO_TAGS;
+
+
 """
         )
 
@@ -208,20 +214,20 @@ extern const char** MIN_LOGGER_NO_TAGS;
                 fd.write(
                     f"""\
 static inline void min_logger_{type_string}_func_{metric_id}(){{
-    if (*min_logging_is_verbose()){{
 #if !MIN_LOGGER_DISABLE_VERBOSE_LOGGING
+    if (*min_logger_is_verbose()){{
         min_logger_format_and_write_log(MIN_LOGGER_NO_TAGS,
                                     "{entry.source_file}",
                                     {entry.source_line},
                                     "{entry.msg}",
                                     {entry.level});
-#else
-    min_logger_write_msg_from_id("{metric_id}", "", 0);
-#endif
     }}
     else {{
+#endif
         min_logger_write_msg_from_id("{metric_id}", "", 0);
+#if !MIN_LOGGER_DISABLE_VERBOSE_LOGGING
     }}
+#endif
 }}
 
 """
@@ -230,16 +236,7 @@ static inline void min_logger_{type_string}_func_{metric_id}(){{
                 fd.write(
                     f"""\
 void min_logger_record_string_func_{metric_id}(const char* value){{
-    if (*min_logging_is_verbose()){{
-#if !MIN_LOGGER_DISABLE_VERBOSE_LOGGING
-    // TBD
-#else
     min_logger_write_msg_from_id("{metric_id}", value, strlen(value));
-#endif
-    }}
-    else {{
-        min_logger_write_msg_from_id("{metric_id}", value, strlen(value));
-    }}
 }}
 
 """
@@ -248,18 +245,13 @@ void min_logger_record_string_func_{metric_id}(const char* value){{
                 fd.write(
                     f"""\
 void min_logger_record_u64_func_{metric_id}(uint64_t value){{
-    const size_t MAX_LEN = 33;
-    char buffer [MAX_LEN];
-    snprintf(buffer, MAX_LEN, "%lu", value);
-
-    if (*min_logging_is_verbose()){{
-#if !MIN_LOGGER_DISABLE_VERBOSE_LOGGING
-    // TBD
-#else
-    min_logger_write_msg_from_id("{metric_id}", buffer, strlen(buffer));
-#endif
+    if (*min_logger_is_binary()) {{
+        min_logger_write_msg_from_id("{metric_id}", &value, sizeof(value));
     }}
     else {{
+        const size_t MAX_LEN = 33;
+        char buffer [MAX_LEN];
+        snprintf(buffer, MAX_LEN, "%lu", value);
         min_logger_write_msg_from_id("{metric_id}", buffer, strlen(buffer));
     }}
 }}
