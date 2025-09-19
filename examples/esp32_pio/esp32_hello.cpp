@@ -10,7 +10,7 @@ uint64_t get_time_nanoseconds() {
     return micros() * 1000;
 }
 
-void min_logger_write(const char* msg) { Serial.write(msg); }
+void min_logger_write(const uint8_t* msg, size_t len_bytes) { Serial.write(msg, len_bytes); }
 
 void setup(){
     Serial.begin(115200);
