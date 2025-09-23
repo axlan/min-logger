@@ -6,6 +6,36 @@
 #include <stdint.h>
 #include <stdio.h>
 
+typedef uint32_t MinLoggerCRC;
+
+#ifdef __cplusplus
+    #include "min_logger_crc.h"
+
+    #define LOG_MSG_GEN_ID(str) min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(str), nullptr, 0)
+    #define LOG_MSG_GEN_ID_PAYLOAD(str, payload, len) \
+        min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(str), payload, len)
+#else  // is compiling a C not C++
+MinLoggerCRC MIN_LOGGER_C_CRC32(const char* str);
+
+    #define __LOG_MSG_GEN_ID_INIT(str)                           \
+        static MinLoggerCRC __min_log_id = 0;                    \
+        if (__min_log_id == 0) {                                 \
+            __min_log_id = MIN_LOGGER_C_CRC32(__MIN_LOGGER_LOC); \
+        }
+
+    #define LOG_MSG_GEN_ID(str)     \
+        __LOG_MSG_GEN_ID_INIT(str); \
+        min_logger_write_msg_from_id(__min_log_id, NULL, 0)
+
+    #define LOG_MSG_GEN_ID_PAYLOAD(str, payload, len) \
+        __LOG_MSG_GEN_ID_INIT(str);                   \
+        min_logger_write_msg_from_id(__min_log_id, payload, len)
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define MIN_LOGGER_DEBUG 10
 #define MIN_LOGGER_INFO 20
 #define MIN_LOGGER_WARN 30
@@ -52,8 +82,6 @@
     #define __MIN_LOGGER_S2(x) __MIN_LOGGER_S1(x)
     #define __MIN_LOGGER_LOC __FILE__ ":" __MIN_LOGGER_S2(__LINE__)
 
-typedef int32_t MinLoggerCRC;
-
 // Weak functions to override with platform specific implementations
 uint64_t min_logger_get_time_nanoseconds();
 size_t min_logger_get_thread_name(char* thread_name, size_t max_len);
@@ -75,21 +103,27 @@ bool* min_logger_is_verbose();
 bool* min_logger_is_binary();
 int* min_logger_level();
 
-constexpr MinLoggerCRC MIN_LOGGER_CRC32(const char* str);
-
-void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload = nullptr,
-                                  size_t payload_len = 0);
+void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload, size_t payload_len);
 
     // This macro is extracted by python/src/min_logger/builder.py which handles it differently from
     // the actual C preprocessor. The level must either be an integer, or one of priority level
     // names (INFO, WARN, etc.). IT CANNOT BE A VARIABLE OR MACRO. The `msg` must be a string
     // literal declared in place. IT CANNOT BE A VARIABLE. IT CANNOT BE A VARIABLE OR MACRO.
+    #define MIN_LOGGER_LOG_ID(level, msg, id)                                      \
+        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {       \
+            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) { \
+                min_logger_format_and_write_log(__FILE__, __LINE__, msg, level);   \
+            } else {                                                               \
+                min_logger_write_msg_from_id(id, NULL, 0);                      \
+            }                                                                      \
+        }
+
     #define MIN_LOGGER_LOG(level, msg)                                             \
         if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {       \
             if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) { \
                 min_logger_format_and_write_log(__FILE__, __LINE__, msg, level);   \
             } else {                                                               \
-                min_logger_write_msg_from_id(MIN_LOGGER_CRC32(__MIN_LOGGER_LOC));  \
+                LOG_MSG_GEN_ID(__MIN_LOGGER_LOC);                                  \
             }                                                                      \
         }
 
@@ -102,12 +136,12 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload = nul
                 min_logger_format_and_write_log(__FILE__, __LINE__, __tmp_min_logger_buffer,     \
                                                 level);                                          \
             } else if (*min_logger_is_binary()) {                                                \
-                min_logger_write_msg_from_id(MIN_LOGGER_CRC32(__MIN_LOGGER_LOC), &value,         \
+                min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(__MIN_LOGGER_LOC), &value,     \
                                              sizeof(uint64_t));                                  \
             } else {                                                                             \
                 char __tmp_min_logger_buffer[33];                                                \
                 snprintf(__tmp_min_logger_buffer, 33, "%" PRIu64, static_cast<uint64_t>(value)); \
-                min_logger_write_msg_from_id(MIN_LOGGER_CRC32(__MIN_LOGGER_LOC),                 \
+                min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(__MIN_LOGGER_LOC),             \
                                              __tmp_min_logger_buffer,                            \
                                              strlen(__tmp_min_logger_buffer));                   \
             }                                                                                    \
@@ -121,7 +155,7 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload = nul
                 min_logger_format_and_write_log(__FILE__, __LINE__, __tmp_min_logger_buffer, \
                                                 level);                                      \
             } else {                                                                         \
-                min_logger_write_msg_from_id(MIN_LOGGER_CRC32(__MIN_LOGGER_LOC), value,      \
+                min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(__MIN_LOGGER_LOC), value,  \
                                              strlen(value));                                 \
             }                                                                                \
         }
@@ -130,7 +164,10 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload = nul
 
     #define MIN_LOGGER_EXIT(level, name) MIN_LOGGER_LOG(level, name "_exit")
 
-    #include "min_logger_crc.h"
 #else
     #error "NEED TO IMPLEMENT!"
+#endif
+
+#ifdef __cplusplus
+}  // extern "C"
 #endif

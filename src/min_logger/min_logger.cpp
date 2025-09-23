@@ -1,5 +1,3 @@
-// Don't expect _min_logger_gen.h to exist.
-#define MIN_LOGGER_LOG_INTERNAL_LIB true
 #include "min_logger.h"
 
 #if MIN_LOGGER_ENABLED

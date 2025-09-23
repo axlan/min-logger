@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # Define user options.
 option(MIN_LOGGER_BUILD_EXAMPLES "Build example applications." ON)
 
+option(MIN_LOGGER_BUILD_TESTS "Build test applications." ON)
+
 if (NOT DEFINED BUILD_SHARED_LIBS)
     option(BUILD_SHARED_LIBS
            "Build shared libraries instead of static libraries."
@@ -32,6 +34,7 @@ endif()
 
 # Define the min_logger library and supporting code.
 add_library(min_logger
+            src/min_logger/min_logger_crc.c
             src/min_logger/min_logger.cpp
             )
 target_include_directories(min_logger PUBLIC ${PROJECT_SOURCE_DIR}/src)
@@ -58,4 +61,10 @@ include(cmake/BuildLogger.cmake)
 
 if (MIN_LOGGER_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+enable_testing()
+
+if (MIN_LOGGER_BUILD_TESTS)
+    add_subdirectory(test)
 endif()

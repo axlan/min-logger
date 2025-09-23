@@ -39,6 +39,6 @@ static constexpr size_t __MIN_LOGGER_STRLEN_C(const char* str) {
     return *str ? 1+__MIN_LOGGER_STRLEN_C(str+1) : 0;
 }
 
-constexpr MinLoggerCRC MIN_LOGGER_CRC32(const char* str) {
+constexpr MinLoggerCRC MIN_LOGGER_CPP_CRC32(const char* str) {
     return __MIN_LOGGER_CRC32(str, __MIN_LOGGER_STRLEN_C(str));
 }
