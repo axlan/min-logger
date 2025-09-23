@@ -22,12 +22,16 @@ static void print_bytes_as_hex_columns(const uint8_t* data, size_t len, int colu
     }
 }
 
+extern "C" {
+
 void min_logger_write(const uint8_t* msg, size_t len_bytes) {
     if (*min_logger_is_binary()) {
         print_bytes_as_hex_columns(msg, len_bytes, 4);
     } else {
         fwrite(msg, sizeof(uint8_t), len_bytes, stdout);
     }
+}
+
 }
 
 int main() {

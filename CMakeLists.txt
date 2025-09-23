@@ -10,10 +10,16 @@ option(MIN_LOGGER_BUILD_EXAMPLES "Build example applications." ON)
 
 option(MIN_LOGGER_BUILD_TESTS "Build test applications." ON)
 
+option(MIN_LOGGER_DISABLE_VERBOSE_LOGGING "Disable verbose logging code." OFF)
+
 if (NOT DEFINED BUILD_SHARED_LIBS)
     option(BUILD_SHARED_LIBS
            "Build shared libraries instead of static libraries."
            ON)
+endif()
+
+if(MIN_LOGGER_DISABLE_VERBOSE_LOGGING)
+    add_compile_options(-DMIN_LOGGER_DISABLE_VERBOSE_LOGGING=1)
 endif()
 
 # Define the project and setup the compiler toolchain. This will establish
@@ -46,9 +52,13 @@ set_target_properties(min_logger PROPERTIES
                       VERSION ${PROJECT_VERSION}
                       SOVERSION ${PROJECT_VERSION_MAJOR})
 
-# Install targets.
+
+# Install targets (handle both shared and static libraries)
 install(TARGETS min_logger
-        LIBRARY DESTINATION lib)
+    EXPORT min_loggerTargets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin)
 
 install(DIRECTORY src/min_logger DESTINATION include
         FILES_MATCHING PATTERN "*.h")

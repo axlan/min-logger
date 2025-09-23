@@ -1,7 +1,7 @@
 
 
 
-cmake -G Ninja -S . -B build
+cmake -G Ninja -S . -B build -DBUILD_SHARED_LIBS=OFF
 cmake --build build
 
 note UV dependancy

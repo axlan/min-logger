@@ -11,26 +11,25 @@ typedef uint32_t MinLoggerCRC;
 #ifdef __cplusplus
     #include "min_logger_crc.h"
 
-    #define LOG_MSG_GEN_ID(str) min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(str), nullptr, 0)
-    #define LOG_MSG_GEN_ID_PAYLOAD(str, payload, len) \
-        min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(str), payload, len)
+    #define __MIN_LOGGER_LOG_MSG_GEN_ID(str) \
+        static constexpr MinLoggerCRC __min_log_id = MIN_LOGGER_CPP_CRC32(str);
+
 #else  // is compiling a C not C++
 MinLoggerCRC MIN_LOGGER_C_CRC32(const char* str);
-
-    #define __LOG_MSG_GEN_ID_INIT(str)                           \
+    #define __MIN_LOGGER_LOG_MSG_GEN_ID(str)                     \
         static MinLoggerCRC __min_log_id = 0;                    \
         if (__min_log_id == 0) {                                 \
             __min_log_id = MIN_LOGGER_C_CRC32(__MIN_LOGGER_LOC); \
         }
-
-    #define LOG_MSG_GEN_ID(str)     \
-        __LOG_MSG_GEN_ID_INIT(str); \
-        min_logger_write_msg_from_id(__min_log_id, NULL, 0)
-
-    #define LOG_MSG_GEN_ID_PAYLOAD(str, payload, len) \
-        __LOG_MSG_GEN_ID_INIT(str);                   \
-        min_logger_write_msg_from_id(__min_log_id, payload, len)
 #endif
+
+#define __MIN_LOGGER_LOG_MSG_ID(str)  \
+    __MIN_LOGGER_LOG_MSG_GEN_ID(str); \
+    min_logger_write_msg_from_id(__min_log_id, NULL, 0)
+
+#define __MIN_LOGGER_LOG_MSG_ID_PAYLOAD(str, payload, len) \
+    __MIN_LOGGER_LOG_MSG_GEN_ID(str);                      \
+    min_logger_write_msg_from_id(__min_log_id, payload, len)
 
 #ifdef __cplusplus
 extern "C" {
@@ -114,7 +113,7 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload, size
             if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) { \
                 min_logger_format_and_write_log(__FILE__, __LINE__, msg, level);   \
             } else {                                                               \
-                min_logger_write_msg_from_id(id, NULL, 0);                      \
+                min_logger_write_msg_from_id(id, NULL, 0);                         \
             }                                                                      \
         }
 
@@ -123,7 +122,7 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload, size
             if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) { \
                 min_logger_format_and_write_log(__FILE__, __LINE__, msg, level);   \
             } else {                                                               \
-                LOG_MSG_GEN_ID(__MIN_LOGGER_LOC);                                  \
+                __MIN_LOGGER_LOG_MSG_ID(__MIN_LOGGER_LOC);                         \
             }                                                                      \
         }
 
@@ -136,14 +135,12 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload, size
                 min_logger_format_and_write_log(__FILE__, __LINE__, __tmp_min_logger_buffer,     \
                                                 level);                                          \
             } else if (*min_logger_is_binary()) {                                                \
-                min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(__MIN_LOGGER_LOC), &value,     \
-                                             sizeof(uint64_t));                                  \
+                __MIN_LOGGER_LOG_MSG_ID_PAYLOAD(__MIN_LOGGER_LOC, &value, sizeof(uint64_t));     \
             } else {                                                                             \
                 char __tmp_min_logger_buffer[33];                                                \
                 snprintf(__tmp_min_logger_buffer, 33, "%" PRIu64, static_cast<uint64_t>(value)); \
-                min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(__MIN_LOGGER_LOC),             \
-                                             __tmp_min_logger_buffer,                            \
-                                             strlen(__tmp_min_logger_buffer));                   \
+                __MIN_LOGGER_LOG_MSG_ID_PAYLOAD(__MIN_LOGGER_LOC, __tmp_min_logger_buffer,       \
+                                                strlen(__tmp_min_logger_buffer));                \
             }                                                                                    \
         }
 
@@ -155,8 +152,7 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload, size
                 min_logger_format_and_write_log(__FILE__, __LINE__, __tmp_min_logger_buffer, \
                                                 level);                                      \
             } else {                                                                         \
-                min_logger_write_msg_from_id(MIN_LOGGER_CPP_CRC32(__MIN_LOGGER_LOC), value,  \
-                                             strlen(value));                                 \
+                __MIN_LOGGER_LOG_MSG_ID_PAYLOAD(__MIN_LOGGER_LOC, value, strlen(value));     \
             }                                                                                \
         }
 
