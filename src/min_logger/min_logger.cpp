@@ -33,6 +33,8 @@ int* min_logger_level() {
     return &level;
 }
 
+void min_logger_write_thread_names() { name_broadcast_count++; }
+
     #if !MIN_LOGGER_DISABLE_VERBOSE_LOGGING
 
 static constexpr const char* SEVERITY_STRING(int severity) {
@@ -79,7 +81,7 @@ static size_t get_thread_idx() {
     return local_thread_idx;
 }
 
-const char** MIN_LOGGER_NO_TAGS = {nullptr};
+extern "C" {
 
 size_t __attribute__((weak)) min_logger_get_thread_name(char* thread_name, size_t max_len) {
     auto thread = pthread_self();
@@ -93,8 +95,6 @@ uint64_t __attribute__((weak)) get_time_nanoseconds() {
     auto time_since_epoch = std::chrono::steady_clock::now().time_since_epoch();
     return std::chrono::duration_cast<std::chrono::nanoseconds>(time_since_epoch).count();
 }
-
-void min_logger_write_thread_names() { name_broadcast_count++; }
 
 void __attribute__((weak)) min_logger_write(const uint8_t* msg, size_t len_bytes) {
     fwrite(msg, sizeof(uint8_t), len_bytes, stdout);
@@ -165,5 +165,6 @@ void __attribute__((weak)) min_logger_format_and_write_log(const char* file_name
     min_logger_write(msg_buffer_u8, strlen(msg_buffer));
     #endif
 }
+} // extern "C"
 
 #endif  // MIN_LOGGER_ENABLED
