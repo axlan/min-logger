@@ -38,7 +38,7 @@ int main() {
     printf("Truncated Logging:\n");
     min_logger_write_thread_names();
     MIN_LOGGER_LOG(MIN_LOGGER_INFO, "hello world trunc");
-    MIN_LOGGER_LOG_ID(MIN_LOGGER_INFO, "hello world trunc explicit ID", 0xDEADBEEF);
+    MIN_LOGGER_LOG_ID(MIN_LOGGER_INFO, "hello world trunc, explicit ID", 0xDEADBEEF);
 
     printf("\nVerbose Logging:\n");
     *min_logger_is_verbose() = true;

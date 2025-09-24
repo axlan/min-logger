@@ -18,7 +18,7 @@ void task(string msg)
         MIN_LOGGER_ENTER(MIN_LOGGER_DEBUG, "TASK_LOOP");
         MIN_LOGGER_RECORD_STRING(MIN_LOGGER_INFO, "T_NAME", msg.c_str());
         MIN_LOGGER_RECORD_U64(MIN_LOGGER_INFO, "LOOP_COUNT", i);
-        MIN_LOGGER_LOG(MIN_LOGGER_INFO, "task{T_NAME}: {LOOP_COUNT}");
+        MIN_LOGGER_LOG(MIN_LOGGER_INFO, "task${T_NAME}: ${LOOP_COUNT}");
         MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, "TASK_LOOP");
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }

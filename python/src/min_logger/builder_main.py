@@ -3,6 +3,7 @@
 CLI interface for building min-logger metadata and header files.
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -10,7 +11,7 @@ from typing import Optional
 from jsonargparse import auto_cli
 from jsonargparse.typing import Path_fc, path_type
 
-from min_logger.builder import get_file_matches, get_metric_entries, write_header
+from min_logger.builder import get_file_matches, get_metric_entries, json_dump_helper
 
 Path_dr = path_type("dw", docstring="path to a directory that exists and is writeable")
 
@@ -19,22 +20,23 @@ _logger = logging.getLogger("min_logger.builder_main")
 
 def command(
     src_paths: list[Path_dr] | Path_dr,  # pyright: ignore[reportInvalidTypeForm]
+    # Set to None to indicate this is a required named arguement
+    json_output: Path_fc = None,  # pyright: ignore[reportInvalidTypeForm]
     root_paths: Optional[list[Path_dr] | Path_dr] = None,  # pyright: ignore[reportInvalidTypeForm]
     extensions: list[str] = ["h", "hh", "hpp", "c", "cpp", "cc", "cxx"],
     recursive: bool = True,
-    header_output: Optional[Path_fc] = None,  # pyright: ignore[reportInvalidTypeForm]
-    json_output: Optional[Path_fc] = None,  # pyright: ignore[reportInvalidTypeForm]
 ):  # pylint: disable=dangerous-default-value
     """Generate MIN_LOGGER header and/or metadata data files from source files with MIN_LOGGER macros.
 
     Args:
         src_paths: Directories to scan for source files with MIN_LOGGER macros.
+        json_output: File to loghing context data to.
         extensions: The extensions for source files with MIN_LOGGER macros.
         recursive: Search src_paths recursively.
-        header_output: File to write _min_logger_gen.h helper functions to (required for cmake builds).
-        json_output: File to loghing context data to.
     """
 
+    if json_output is None:
+        raise ValueError("--json_output is required")
     if not isinstance(src_paths, list):
         src_paths = [src_paths]
     src_paths = [Path(s) for s in src_paths]
@@ -48,8 +50,8 @@ def command(
     candidate_files = get_file_matches(src_paths, extensions, recursive)
     entries = get_metric_entries(candidate_files, root_paths)
 
-    if header_output:
-        write_header(entries, header_output)
+    with open(json_output, "w") as fd:
+        json.dump([e._asdict() for e in entries.values()], fd, default=json_dump_helper)
 
 
 def main():
