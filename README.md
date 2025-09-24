@@ -4,6 +4,8 @@
 cmake -G Ninja -S . -B build -DBUILD_SHARED_LIBS=OFF
 cmake --build build
 
+stdbuf -oL ./build/examples/log_threads/log_threads | uv --project python run min-logger-parser build/examples/log_threads/log_threads_min_logger.json --log_format=TEXT
+
 note UV dependancy
 
 

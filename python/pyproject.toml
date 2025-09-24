@@ -6,6 +6,7 @@ dependencies = ["jsonargparse[signatures]", "argcomplete"]
 
 [project.scripts]
 min-logger-builder = "min_logger.builder_main:main"
+min-logger-parser = "min_logger.parser_main:main"
 
 [dependency-groups]
 dev = ["pytest", "black", "pylint", "pyright"]
