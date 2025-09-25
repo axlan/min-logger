@@ -94,15 +94,14 @@ def _parse_args(raw_contents: str) -> list[str]:
 
 
 # MIN_LOGGER_LOG(MIN_LOGGER_INFO, "task{T_NAME}: {LOOP_COUNT}");
-_LOG_METRIC_RE = re.compile(r"MIN_LOGGER_LOG\((.+)\)")
-# MIN_LOGGER_LOG_ID(MIN_LOGGER_INFO, "hello world trunc explicit ID", 0xDEADBEEF);
-_LOG_ID_METRIC_RE = re.compile(r"MIN_LOGGER_LOG_ID\((.+)\)")
+# MIN_LOGGER_LOG_ID(0xDEADBEEF, MIN_LOGGER_INFO, "hello world trunc explicit ID");
+_LOG_METRIC_RE = re.compile(r"MIN_LOGGER_LOG(_ID)?\((.+)\)")
 # MIN_LOGGER_RECORD_STRING(MIN_LOGGER_INFO, "T_NAME", msg.c_str());
 # MIN_LOGGER_RECORD_U64(MIN_LOGGER_INFO, "LOOP_COUNT", i);
-_RECORD_METRIC_RE = re.compile(r"MIN_LOGGER_RECORD_([A-Z0-9]+)\((.+)\)")
+_RECORD_METRIC_RE = re.compile(r"MIN_LOGGER_RECORD_([A-Z0-9]+)(_ID)?\((.+)\)")
 # MIN_LOGGER_ENTER(MIN_LOGGER_DEBUG, "TASK_LOOP");
 # MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, "TASK_LOOP");
-_ENTER_METRIC_RE = re.compile(r"MIN_LOGGER_(ENTER|EXIT)\((.+)\)")
+_ENTER_METRIC_RE = re.compile(r"MIN_LOGGER_(ENTER|EXIT)(_ID)?\((.+)\)")
 
 
 def get_file_matches(src_paths: list[Path], extensions: list[str], recursive: bool) -> list[Path]:
@@ -150,13 +149,17 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
                 location_str = f"{file}:{line_num}"
 
                 metric_type: Optional[MetricType] = None
-                parsed_args = 0
-                expected_args = 0
+                parsed_args: list[str] = []
+                has_id = False
 
-                severity_raw = ""
-                msg_raw = None
-                name_raw = None
-                msg_id_raw = None
+                raw_strings = {
+                    "severity": "",
+                    "msg": None,
+                    "name": None,
+                    "msg_id": None,
+                }
+
+                param_positions: dict[str, int] = {}
 
                 name = None
                 msg = None
@@ -164,23 +167,10 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
                 m = _LOG_METRIC_RE.search(line)
                 if m is not None:
                     metric_type = MetricType.LOG
-                    args = _parse_args(m.group(1))
-                    expected_args = 2
-                    parsed_args = len(args)
-                    if expected_args == parsed_args:
-                        severity_raw = args[0]
-                        msg_raw = args[1]
-
-                m = _LOG_ID_METRIC_RE.search(line)
-                if m is not None:
-                    metric_type = MetricType.LOG
-                    args = _parse_args(m.group(1))
-                    expected_args = 3
-                    parsed_args = len(args)
-                    if expected_args == parsed_args:
-                        severity_raw = args[0]
-                        msg_raw = args[1]
-                        msg_id_raw = args[2]
+                    has_id = bool(m.group(1))
+                    parsed_args = _parse_args(m.group(2))
+                    param_positions["severity"] = 0
+                    param_positions["msg"] = 1
 
                 m = _RECORD_METRIC_RE.search(line)
                 if m is not None:
@@ -192,12 +182,11 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
                         raise ValueError(
                             f'Unsupported record type "{m.group(1)}" in {location_str}.'
                         )
-                    args = _parse_args(m.group(2))
-                    expected_args = 3
-                    parsed_args = len(args)
-                    if expected_args == parsed_args:
-                        severity_raw = args[0]
-                        name_raw = args[1]
+                    has_id = bool(m.group(2))
+                    parsed_args = _parse_args(m.group(3))
+                    param_positions["severity"] = 0
+                    param_positions["name"] = 1
+                    param_positions["value"] = 2
 
                 m = _ENTER_METRIC_RE.search(line)
                 if m is not None:
@@ -205,38 +194,45 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
                         metric_type = MetricType.ENTER
                     else:
                         metric_type = MetricType.EXIT
-                    args = _parse_args(m.group(2))
-                    expected_args = 2
-                    parsed_args = len(args)
-                    if expected_args == parsed_args:
-                        severity_raw = args[0]
-                        name_raw = args[1]
+                    has_id = bool(m.group(2))
+                    parsed_args = _parse_args(m.group(3))
+                    param_positions["severity"] = 0
+                    param_positions["name"] = 1
 
                 if metric_type is not None:
                     error_msg = f'Could not parse "{line.strip()}" at {location_str}.'
-                    if expected_args != parsed_args:
+
+                    if has_id:
+                        for key in param_positions:
+                            param_positions[key] += 1
+                        param_positions["msg_id"] = 0
+
+                    if len(param_positions) != len(parsed_args):
                         raise ValueError(
-                            f"{error_msg} Expected {expected_args} args, parsed {parsed_args}."
+                            f"{error_msg} Expected {len(param_positions)} args, parsed {len(parsed_args)}."
                         )
 
-                    severity = _parse_severity(severity_raw)
+                    for param, idx in param_positions.items():
+                        raw_strings[param] = parsed_args[idx]
+
+                    severity = _parse_severity(raw_strings["severity"])
                     if severity is None:
                         raise ValueError(
-                            f'{error_msg} Could not parse severiy level "{severity_raw}".'
+                            f'{error_msg} Could not parse severiy level "{raw_strings["severity"]}".'
                         )
 
-                    if msg_raw is not None:
-                        msg = _get_string_literal(msg_raw)
+                    if raw_strings["msg"] is not None:
+                        msg = _get_string_literal(raw_strings["msg"])
                         if msg is None:
                             raise ValueError(
-                                f'{error_msg} Log message "{msg_raw}" not string literal.'
+                                f'{error_msg} Log message "{raw_strings["msg"]}" not string literal.'
                             )
 
-                    if name_raw is not None:
-                        name = _get_string_literal(name_raw)
+                    if raw_strings["name"] is not None:
+                        name = _get_string_literal(raw_strings["name"])
                         if name is None:
                             raise ValueError(
-                                f'{error_msg} Metric name "{name_raw}" not string literal.'
+                                f'{error_msg} Metric name "{raw_strings["name"]}" not string literal.'
                             )
 
                         if name in name_table:
@@ -256,12 +252,12 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
                                 )
 
                     metric_id = 0
-                    if msg_id_raw is not None:
+                    if raw_strings["msg_id"] is not None:
                         try:
-                            metric_id = int(msg_id_raw, 0)
+                            metric_id = int(raw_strings["msg_id"], 0)
                         except ValueError:
                             raise ValueError(
-                                f'{error_msg} Could not parse ID "{msg_id_raw}" as integer.'
+                                f'{error_msg} Could not parse ID "{raw_strings["msg_id"]}" as integer.'
                             )
                     else:
                         metric_id = crc32(location_str.encode())
