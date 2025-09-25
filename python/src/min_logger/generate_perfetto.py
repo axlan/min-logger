@@ -27,7 +27,11 @@ class PerfettoBuilder:
         self.builder = TraceProtoBuilder()
         self.threads: dict[int, TrackDescriptor] = {}
         self.process_desc = None
-        # Could actually cache data to avoid duplicate strings.
+        # Could actually cache data to avoid duplicate strings. To do this I
+        # think it would need to be done upfront preprocessing all the messages
+        # to generate the full interned state that would be used for all
+        # subsequent packets:
+        # https://perfetto.dev/docs/reference/synthetic-track-event#interning-data-for-trace-size-optimization
         self.internal_iids = 1
 
     def write_to_file(self, out_path: Path):
