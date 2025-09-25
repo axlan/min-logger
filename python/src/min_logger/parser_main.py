@@ -10,7 +10,7 @@ from typing import Optional
 import sys
 
 from jsonargparse import auto_cli
-from jsonargparse.typing import Path_fr, path_type
+from jsonargparse.typing import Path_fr, path_type, Path_fc
 
 from min_logger.builder import (
     MetricEntryData,
@@ -31,6 +31,7 @@ def command(
     meta_data: Path_fr,  # pyright: ignore[reportInvalidTypeForm]
     log_format: LogFormat = None,  # pyright: ignore[reportArgumentType]
     log_file: Optional[Path_fr] = None,  # pyright: ignore[reportInvalidTypeForm]
+    perfetto_out: Optional[Path_fc] = None,  # pyright: ignore[reportInvalidTypeForm]
 ):  # pylint: disable=dangerous-default-value
     """Generate MIN_LOGGER header and/or metadata data files from source files with MIN_LOGGER macros.
 
@@ -55,9 +56,9 @@ def command(
         log_fd = open(log_file, mode)
 
     if log_format == LogFormat.TEXT:
-        read_text(log_fd, meta_data)  # type: ignore
+        read_text(log_fd, meta_data, perfetto_out)  # type: ignore
     elif log_format == LogFormat.BINARY:
-        read_binary(log_fd, meta_data)  # type: ignore
+        read_binary(log_fd, meta_data, perfetto_out)  # type: ignore
 
 
 def main():
@@ -69,7 +70,10 @@ def main():
         format="%(levelname)s - %(name)s:%(lineno)d - %(message)s",
         stream=sys.stderr,
     )
-    auto_cli(command)
+    try:
+        auto_cli(command)
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":
