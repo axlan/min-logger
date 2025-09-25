@@ -6,7 +6,6 @@ CLI interface for parsing min-logger logs.
 from enum import Enum, auto
 import json
 import logging
-from pathlib import Path
 from typing import Optional
 import sys
 
@@ -14,12 +13,9 @@ from jsonargparse import auto_cli
 from jsonargparse.typing import Path_fr, path_type
 
 from min_logger.builder import (
-    get_file_matches,
-    get_metric_entries,
-    json_dump_helper,
     MetricEntryData,
 )
-from min_logger.parser import read_text
+from min_logger.parser import read_text, read_binary
 
 Path_dr = path_type("dw", docstring="path to a directory that exists and is writeable")
 
@@ -60,6 +56,8 @@ def command(
 
     if log_format == LogFormat.TEXT:
         read_text(log_fd, meta_data)  # type: ignore
+    elif log_format == LogFormat.BINARY:
+        read_binary(log_fd, meta_data)  # type: ignore
 
 
 def main():

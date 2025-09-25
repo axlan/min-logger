@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 import logging
 import re
-from typing import Any, TextIO
+import struct
+from typing import Any, BinaryIO, TextIO
 
 from min_logger.builder import MetricEntryData, MetricType, THREAD_NAME_MSG_ID, SEVERITY_LEVELS
 
@@ -43,12 +44,16 @@ def print_msg(
     timestamp: float,
     metric_id: int,
     thread_id: int,
-    value: str,
+    value: str | bytes,
     meta: dict[int, MetricEntryData],
     parsing_state: ParsingState,
 ):
+
     if metric_id == THREAD_NAME_MSG_ID:
-        parsing_state.thread_names[thread_id] = value
+        if isinstance(value, (bytes, bytearray)):
+            parsing_state.thread_names[thread_id] = value.decode()
+        else:
+            parsing_state.thread_names[thread_id] = str(value)
         return
 
     if metric_id not in meta:
@@ -60,7 +65,14 @@ def print_msg(
     metric = meta[metric_id]
 
     if metric.type in (MetricType.RECORD_STRING, MetricType.RECORD_U64) and metric.name is not None:
-        parsing_state.last_values[metric.name] = value
+        if isinstance(value, str):
+            parsing_state.last_values[metric.name] = value
+        elif isinstance(value, (bytes, bytearray)):
+            if metric.type == MetricType.RECORD_U64:
+                parsing_state.last_values[metric.name] = str(struct.unpack("<Q", value)[0])
+            elif metric.type == MetricType.RECORD_STRING:
+                parsing_state.last_values[metric.name] = value.decode()
+            return
         return
 
     thread_name = (
@@ -95,3 +107,54 @@ def read_text(fd: TextIO, meta: dict[int, MetricEntryData]):
 
     if len(parsing_state.unknown_ids) > 0:
         _logger.warning("Log contained unknown IDs: %s", str(parsing_state.unknown_ids))
+
+
+# struct BinaryMsgHeader {
+#     static constexpr uint16_t SYNC = 0xFAAF;
+#     uint16_t sync = SYNC;
+#     uint8_t payload_len = 0;
+#     uint8_t thread_id = 0;
+#     MinLoggerCRC msg_id = 0;
+#     uint64_t timestamp = 0;
+# };
+
+SYNC_BYTES = b"\xaf\xfa"
+# Skip sync
+MSG_HEADER = struct.Struct("<BBIQ")
+CHUNK_SIZE = 32
+HEADER_SIZE = MSG_HEADER.size + len(SYNC_BYTES)
+
+
+def read_binary(fd: BinaryIO, meta: dict[int, MetricEntryData]):
+    parsing_state = ParsingState()
+    buffer = b""
+    while True:
+        chunk = fd.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        buffer += chunk
+        while True:
+            idx = buffer.find(SYNC_BYTES)
+            if idx == -1:
+                # Keep last byte in buffer in case sync is split across chunks
+                buffer = (
+                    buffer[-(len(SYNC_BYTES) - 1) :]
+                    if len(buffer) >= len(SYNC_BYTES) - 1
+                    else buffer
+                )
+                break
+            buffer = buffer[idx:]
+
+            if len(buffer) < HEADER_SIZE:
+                # Not enough data for header, wait for next chunk
+                break
+            payload_len, thread_id, metric_id, timestamp = MSG_HEADER.unpack_from(
+                buffer, len(SYNC_BYTES)
+            )
+            if len(buffer) < HEADER_SIZE + payload_len:
+                # Not enough data for payload, wait for next chunk
+                break
+            msg_end = HEADER_SIZE + payload_len
+            payload = buffer[HEADER_SIZE:msg_end]
+            print_msg(timestamp, metric_id, thread_id, payload, meta, parsing_state)
+            buffer = buffer[msg_end:]

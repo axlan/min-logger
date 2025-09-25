@@ -14,6 +14,9 @@ typedef uint32_t MinLoggerCRC;
     #define __MIN_LOGGER_LOG_MSG_GEN_ID(str) \
         static constexpr MinLoggerCRC __min_log_id = MIN_LOGGER_CPP_CRC32(str);
 
+    #define __MIN_LOGGER_ASSERT_TYPE(x, expected_type)                 \
+        static_assert(std::is_same<decltype(x), expected_type>::value, \
+                      "Type mismatch: expected " #expected_type)
 #else  // is compiling a C not C++
 MinLoggerCRC MIN_LOGGER_C_CRC32(const char* str);
     #define __MIN_LOGGER_LOG_MSG_GEN_ID(str)                     \
@@ -21,6 +24,10 @@ MinLoggerCRC MIN_LOGGER_C_CRC32(const char* str);
         if (__min_log_id == 0) {                                 \
             __min_log_id = MIN_LOGGER_C_CRC32(__MIN_LOGGER_LOC); \
         }
+
+    #define __MIN_LOGGER_ASSERT_TYPE(x, expected_type)              \
+        _Static_assert(_Generic((x), expected_type: 1, default: 0), \
+                       "Type mismatch: expected " #expected_type)
 #endif
 
 #define __MIN_LOGGER_LOG_MSG_ID(str)  \
@@ -126,22 +133,22 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload, size
             }                                                                      \
         }
 
-    #define MIN_LOGGER_RECORD_U64(level, name, value)                                            \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                     \
-            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) {               \
-                char __tmp_min_logger_buffer[64];                                                \
-                snprintf(__tmp_min_logger_buffer, 64, "%s: %" PRIu64, name,                      \
-                         static_cast<uint64_t>(value));                                          \
-                min_logger_format_and_write_log(__FILE__, __LINE__, __tmp_min_logger_buffer,     \
-                                                level);                                          \
-            } else if (*min_logger_is_binary()) {                                                \
-                __MIN_LOGGER_LOG_MSG_ID_PAYLOAD(__MIN_LOGGER_LOC, &value, sizeof(uint64_t));     \
-            } else {                                                                             \
-                char __tmp_min_logger_buffer[33];                                                \
-                snprintf(__tmp_min_logger_buffer, 33, "%" PRIu64, static_cast<uint64_t>(value)); \
-                __MIN_LOGGER_LOG_MSG_ID_PAYLOAD(__MIN_LOGGER_LOC, __tmp_min_logger_buffer,       \
-                                                strlen(__tmp_min_logger_buffer));                \
-            }                                                                                    \
+    #define MIN_LOGGER_RECORD_U64(level, name, value)                                        \
+        __MIN_LOGGER_ASSERT_TYPE(value, uint64_t);                                           \
+        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                 \
+            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) {           \
+                char __tmp_min_logger_buffer[64];                                            \
+                snprintf(__tmp_min_logger_buffer, 64, "%s: %" PRIu64, name, value);          \
+                min_logger_format_and_write_log(__FILE__, __LINE__, __tmp_min_logger_buffer, \
+                                                level);                                      \
+            } else if (*min_logger_is_binary()) {                                            \
+                __MIN_LOGGER_LOG_MSG_ID_PAYLOAD(__MIN_LOGGER_LOC, &value, sizeof(uint64_t)); \
+            } else {                                                                         \
+                char __tmp_min_logger_buffer[33];                                            \
+                snprintf(__tmp_min_logger_buffer, 33, "%" PRIu64, value);                    \
+                __MIN_LOGGER_LOG_MSG_ID_PAYLOAD(__MIN_LOGGER_LOC, __tmp_min_logger_buffer,   \
+                                                strlen(__tmp_min_logger_buffer));            \
+            }                                                                                \
         }
 
     #define MIN_LOGGER_RECORD_STRING(level, name, value)                                     \
