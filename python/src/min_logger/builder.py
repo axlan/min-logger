@@ -94,11 +94,12 @@ def _parse_args(raw_contents: str) -> list[str]:
 
 
 # MIN_LOGGER_LOG(MIN_LOGGER_INFO, "task{T_NAME}: {LOOP_COUNT}");
-# MIN_LOGGER_LOG_ID(0xDEADBEEF, MIN_LOGGER_INFO, "hello world trunc explicit ID");
+# MIN_LOGGER_LOG_ID(0xDEADBEEF, MIN_LOS(_ID)?\((.GGER_INFO, "hello world trunc explicit ID");
 _LOG_METRIC_RE = re.compile(r"MIN_LOGGER_LOG(_ID)?\((.+)\)")
 # MIN_LOGGER_RECORD_STRING(MIN_LOGGER_INFO, "T_NAME", msg.c_str());
+_RECORD_STRING_METRIC_RE = re.compile(r"MIN_LOGGER_RECORD_STRING(_ID)?\((.+)\)")
 # MIN_LOGGER_RECORD_U64(MIN_LOGGER_INFO, "LOOP_COUNT", i);
-_RECORD_METRIC_RE = re.compile(r"MIN_LOGGER_RECORD_([A-Z0-9]+)(_ID)?\((.+)\)")
+_RECORD_VALUE_METRIC_RE = re.compile(r"MIN_LOGGER_RECORD_VALUE(_ID)?\((.+)\)")
 # MIN_LOGGER_ENTER(MIN_LOGGER_DEBUG, "TASK_LOOP");
 # MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, "TASK_LOOP");
 _ENTER_METRIC_RE = re.compile(r"MIN_LOGGER_(ENTER|EXIT)(_ID)?\((.+)\)")
@@ -172,21 +173,34 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
                     param_positions["severity"] = 0
                     param_positions["msg"] = 1
 
-                m = _RECORD_METRIC_RE.search(line)
+                m = _RECORD_STRING_METRIC_RE.search(line)
                 if m is not None:
-                    if m.group(1) == "STRING":
-                        metric_type = MetricType.RECORD_STRING
-                    elif m.group(1) == "U64":
-                        metric_type = MetricType.RECORD_U64
-                    else:
-                        raise ValueError(
-                            f'Unsupported record type "{m.group(1)}" in {location_str}.'
-                        )
-                    has_id = bool(m.group(2))
-                    parsed_args = _parse_args(m.group(3))
+                    metric_type = MetricType.RECORD_STRING
+                    has_id = bool(m.group(1))
+                    parsed_args = _parse_args(m.group(2))
                     param_positions["severity"] = 0
                     param_positions["name"] = 1
                     param_positions["value"] = 2
+
+                m = _RECORD_VALUE_METRIC_RE.search(line)
+                if m is not None:
+                    has_id = bool(m.group(1))
+                    parsed_args = _parse_args(m.group(2))
+                    param_positions["severity"] = 0
+                    param_positions["name"] = 1
+                    param_positions["value_type"] = 2
+                    param_positions["value"] = 3
+
+                    if len(param_positions) == len(parsed_args):
+                        value_type = parsed_args[2]
+                        if value_type == "MIN_LOGGER_PAYLOAD_U64":
+                            metric_type = MetricType.RECORD_U64
+                        else:
+                            raise ValueError(
+                                f'Unsupported record type "{value_type}" in {location_str}.'
+                            )
+                    else:
+                        metric_type = MetricType.RECORD_U64
 
                 m = _ENTER_METRIC_RE.search(line)
                 if m is not None:

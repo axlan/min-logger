@@ -17,6 +17,8 @@ typedef uint32_t MinLoggerCRC;
     #define __MIN_LOGGER_ASSERT_TYPE(x, expected_type)                 \
         static_assert(std::is_same<decltype(x), expected_type>::value, \
                       "Type mismatch: expected " #expected_type)
+
+extern "C" {
 #else  // is compiling a C not C++
 MinLoggerCRC MIN_LOGGER_C_CRC32(const char* str);
     #define __MIN_LOGGER_LOG_MSG_GEN_ID(str)                     \
@@ -30,9 +32,18 @@ MinLoggerCRC MIN_LOGGER_C_CRC32(const char* str);
                        "Type mismatch: expected " #expected_type)
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+typedef enum {
+    MIN_LOGGER_PAYLOAD_NONE,
+    MIN_LOGGER_PAYLOAD_STRING,
+    MIN_LOGGER_PAYLOAD_U64
+} PayloadType;
+typedef void (*MinLoggerSerializeCallBack)(MinLoggerCRC msg_id, PayloadType payload_type,
+                                           const void* payload, size_t payload_len);
+
+typedef void (*MinLoggerVerboseCallBack)(MinLoggerCRC msg_id, const char* file_name,
+                                         unsigned int line_number, const char* function_name,
+                                         const char* msg, int severity, PayloadType payload_type,
+                                         const void* payload, size_t payload_len);
 
 #define MIN_LOGGER_DEBUG 10
 #define MIN_LOGGER_INFO 20
@@ -84,36 +95,34 @@ extern "C" {
 uint64_t min_logger_get_time_nanoseconds();
 size_t min_logger_get_thread_name(char* thread_name, size_t max_len);
 
-// Weak functions to override for custom formatting/serialization.
-void min_logger_write_binary_msg_from_id(MinLoggerCRC msg_id, const uint8_t* payload,
-                                         size_t payload_len);
-void min_logger_write_str_msg_from_id(MinLoggerCRC msg_id, const char* payload, size_t payload_len);
-void min_logger_format_and_write_log(const char* file_name, unsigned int line_number,
-                                     // Could possibly include function name, though this is more
-                                     // difficult to generate so isn't going to be included.
-                                     const char* msg, int severity);
-
 // Thread safe function for requesting threads report their names.
 void min_logger_write_thread_names();
 
 // Thread unsafe functions for configuring logger at runtime.
 bool* min_logger_is_verbose();
-bool* min_logger_is_binary();
+// Defaults to MIN_LOGGER_DEFAULT_VERBOSE_FORMAT
+MinLoggerVerboseCallBack* min_logger_verbose_format();
+// Defaults to MIN_LOGGER_DEFAULT_TEXT_SERIALIZED_FORMAT
+MinLoggerSerializeCallBack* min_logger_serialize_format();
 int* min_logger_level();
 
-void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload, size_t payload_len);
+// Built in formats
+extern const MinLoggerVerboseCallBack MIN_LOGGER_DEFAULT_VERBOSE_FORMAT;
+extern const MinLoggerSerializeCallBack MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
+extern const MinLoggerSerializeCallBack MIN_LOGGER_DEFAULT_TEXT_SERIALIZED_FORMAT;
 
     // This macro is extracted by python/src/min_logger/builder.py which handles it differently from
     // the actual C preprocessor. The level must either be an integer, or one of priority level
     // names (INFO, WARN, etc.). IT CANNOT BE A VARIABLE OR MACRO. The `msg` must be a string
     // literal declared in place. IT CANNOT BE A VARIABLE. IT CANNOT BE A VARIABLE OR MACRO.
-    #define MIN_LOGGER_LOG_ID(id, level, msg)                                      \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {       \
-            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) { \
-                min_logger_format_and_write_log(__FILE__, __LINE__, msg, level);   \
-            } else {                                                               \
-                min_logger_write_msg_from_id(id, NULL, 0);                         \
-            }                                                                      \
+    #define MIN_LOGGER_LOG_ID(id, level, msg)                                                \
+        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                 \
+            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) {           \
+                (*min_logger_verbose_format())(id, __FILE__, __LINE__, __func__, msg, level, \
+                                               MIN_LOGGER_PAYLOAD_NONE, NULL, 0);            \
+            } else {                                                                         \
+                (*min_logger_serialize_format())(id, MIN_LOGGER_PAYLOAD_NONE, NULL, 0);      \
+            }                                                                                \
         }
 
     #define MIN_LOGGER_LOG(level, msg)                     \
@@ -122,40 +131,31 @@ void min_logger_write_msg_from_id(MinLoggerCRC msg_id, const void* payload, size
             MIN_LOGGER_LOG_ID(__min_log_id, level, msg);   \
         }
 
-    #define MIN_LOGGER_RECORD_U64_ID(id, level, name, value)                                 \
-        __MIN_LOGGER_ASSERT_TYPE(value, uint64_t);                                           \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                 \
-            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) {           \
-                char __tmp_min_logger_buffer[64];                                            \
-                snprintf(__tmp_min_logger_buffer, 64, "%s: %" PRIu64, name, value);          \
-                min_logger_format_and_write_log(__FILE__, __LINE__, __tmp_min_logger_buffer, \
-                                                level);                                      \
-            } else if (*min_logger_is_binary()) {                                            \
-                min_logger_write_msg_from_id(id, &value, sizeof(uint64_t));                  \
-            } else {                                                                         \
-                char __tmp_min_logger_buffer[33];                                            \
-                snprintf(__tmp_min_logger_buffer, 33, "%" PRIu64, value);                    \
-                min_logger_write_msg_from_id(id, __tmp_min_logger_buffer,                    \
-                                             strlen(__tmp_min_logger_buffer));               \
-            }                                                                                \
+    #define MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)                          \
+        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                  \
+            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) {            \
+                (*min_logger_verbose_format())(id, __FILE__, __LINE__, __func__, name, level, \
+                                               type, &value, sizeof(value));                  \
+            } else {                                                                          \
+                (*min_logger_serialize_format())(id, type, &value, sizeof(value));            \
+            }                                                                                 \
         }
 
-    #define MIN_LOGGER_RECORD_U64(level, name, value)                   \
-        {                                                               \
-            __MIN_LOGGER_LOG_MSG_GEN_ID(__MIN_LOGGER_LOC);              \
-            MIN_LOGGER_RECORD_U64_ID(__min_log_id, level, name, value); \
+    #define MIN_LOGGER_RECORD_VALUE(level, name, type, value)                   \
+        {                                                                       \
+            __MIN_LOGGER_LOG_MSG_GEN_ID(__MIN_LOGGER_LOC);                      \
+            MIN_LOGGER_RECORD_VALUE_ID(__min_log_id, level, name, type, value); \
         }
 
-    #define MIN_LOGGER_RECORD_STRING_ID(id, level, name, value)                              \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                 \
-            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) {           \
-                char __tmp_min_logger_buffer[128];                                           \
-                snprintf(__tmp_min_logger_buffer, 128, "%s: %s", name, value);               \
-                min_logger_format_and_write_log(__FILE__, __LINE__, __tmp_min_logger_buffer, \
-                                                level);                                      \
-            } else {                                                                         \
-                min_logger_write_msg_from_id(id, value, strlen(value));                      \
-            }                                                                                \
+    #define MIN_LOGGER_RECORD_STRING_ID(id, level, name, value)                                  \
+        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                     \
+            if (!MIN_LOGGER_DISABLE_VERBOSE_LOGGING && *min_logger_is_verbose()) {               \
+                (*min_logger_verbose_format())(id, __FILE__, __LINE__, __func__, name, level,    \
+                                               MIN_LOGGER_PAYLOAD_STRING, value, strlen(value)); \
+            } else {                                                                             \
+                (*min_logger_serialize_format())(id, MIN_LOGGER_PAYLOAD_STRING, value,           \
+                                                 strlen(value));                                 \
+            }                                                                                    \
         }
 
     #define MIN_LOGGER_RECORD_STRING(level, name, value)                   \
