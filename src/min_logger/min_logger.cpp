@@ -4,6 +4,7 @@
     #include <algorithm>
     #include <atomic>
     #include <chrono>
+    #include <cmath>
     #include <cstdio>
     #include <cstring>
     #include <thread>
@@ -36,6 +37,37 @@ static double nano_to_seconds(uint64_t nanoseconds) {
     static constexpr uint64_t TO_NANO = 1000000000ull;
     uint64_t time_sec = nanoseconds / TO_NANO;
     return double(time_sec) + double(nanoseconds - time_sec * TO_NANO) / double(TO_NANO);
+}
+
+// Converts elapsed time in nanoseconds to (scale, value) pair
+// Scale: 0=ns, 1=us, 2=ms, 3=s
+// Value: 0-999
+static std::pair<unsigned, unsigned> convertNanoseconds(uint64_t ns) {
+    unsigned scale = 0;
+    uint64_t value = ns;
+
+    // Scale up until value fits in 0-999 range
+    if (value >= 1000) {
+        value /= 1000;
+        scale = 1;  // microseconds
+
+        if (value >= 1000) {
+            value /= 1000;
+            scale = 2;  // milliseconds
+
+            if (value >= 1000) {
+                value /= 1000;
+                scale = 3;  // seconds
+
+                // Cap at 999 seconds
+                if (value > 999) {
+                    value = 999;
+                }
+            }
+        }
+    }
+
+    return {scale, static_cast<unsigned>(value)};
 }
 
 void send_thread_name_if_needed() {
@@ -162,6 +194,44 @@ void min_logger_default_text_serializer(MinLoggerCRC msg_id, PayloadType payload
 }
 const MinLoggerSerializeCallBack MIN_LOGGER_DEFAULT_TEXT_SERIALIZED_FORMAT =
     min_logger_default_text_serializer;
+
+    #pragma pack(1)  // Set packing alignment to 1 byte
+struct MicroMessage {
+    uint16_t truncated_id;
+    uint8_t thread_id : 4;     // 4 bits
+    uint8_t time_scale : 2;    // 2 bits
+    uint16_t time_value : 10;  // 10 bits
+
+    MicroMessage() : truncated_id(0), thread_id(0), time_scale(0), time_value(0) {}
+
+    MicroMessage(MinLoggerCRC id, uint8_t thread, uint8_t scale, uint16_t value)
+        : truncated_id(static_cast<uint16_t>(id)),
+          thread_id(thread & 0xF),
+          time_scale(scale & 0x3),
+          time_value(value & 0x3FF) {}
+};
+    #pragma pack()
+
+void min_logger_micro_binary_serializer(MinLoggerCRC msg_id, PayloadType payload_type,
+                                        const void* payload, size_t payload_len) {
+    static std::atomic<uint64_t> last_timestamp_ns = {0};
+
+    uint64_t current_timestamp_ns = get_time_nanoseconds();
+    uint64_t local_last_timestamp_ns = last_timestamp_ns.exchange(current_timestamp_ns);
+    uint64_t elapsed_ns = 0;
+    // Handle initial case, and race condition between computing current time and doing exchange.
+    if (local_last_timestamp_ns != 0 && current_timestamp_ns > local_last_timestamp_ns) {
+        elapsed_ns = current_timestamp_ns - local_last_timestamp_ns;
+    }
+
+    auto delta = convertNanoseconds(elapsed_ns);
+
+    MicroMessage message = MicroMessage(msg_id, get_thread_idx(), delta.first, delta.second);
+
+    min_logger_write(reinterpret_cast<uint8_t*>(&message), sizeof(message));
+}
+const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT =
+    min_logger_micro_binary_serializer;
 
 void min_logger_default_verbose_format(MinLoggerCRC msg_id, const char* file_name,
                                        unsigned int line_number, const char* function_name,

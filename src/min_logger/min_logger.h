@@ -109,6 +109,7 @@ int* min_logger_level();
 // Built in formats
 extern const MinLoggerVerboseCallBack MIN_LOGGER_DEFAULT_VERBOSE_FORMAT;
 extern const MinLoggerSerializeCallBack MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
+extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT;
 extern const MinLoggerSerializeCallBack MIN_LOGGER_DEFAULT_TEXT_SERIALIZED_FORMAT;
 
     // This macro is extracted by python/src/min_logger/builder.py which handles it differently from
