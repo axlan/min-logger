@@ -15,7 +15,7 @@ from jsonargparse.typing import Path_fr, path_type, Path_fc
 from min_logger.builder import (
     MetricEntryData,
 )
-from min_logger.parser import read_text, read_binary
+from min_logger.parser import read_text, read_binary, read_micro_binary
 
 Path_dr = path_type("dw", docstring="path to a directory that exists and is writeable")
 
@@ -25,6 +25,7 @@ _logger = logging.getLogger("min_logger.parser_main")
 class LogFormat(Enum):
     TEXT = auto()
     BINARY = auto()
+    MICRO_BINARY = auto()
 
 
 def command(
@@ -47,7 +48,7 @@ def command(
         meta_data = json.load(fd)
         meta_data = {e["id"]: MetricEntryData(**e) for e in meta_data}
 
-    is_binary = log_format in {LogFormat.BINARY}
+    is_binary = log_format in {LogFormat.BINARY, LogFormat.MICRO_BINARY}
 
     if log_file is None:
         log_fd = sys.stdin.buffer if is_binary else sys.stdin
@@ -59,6 +60,8 @@ def command(
         read_text(log_fd, meta_data, perfetto_out)  # type: ignore
     elif log_format == LogFormat.BINARY:
         read_binary(log_fd, meta_data, perfetto_out)  # type: ignore
+    elif log_format == LogFormat.MICRO_BINARY:
+        read_micro_binary(log_fd, meta_data, perfetto_out)  # type: ignore
 
 
 def main():

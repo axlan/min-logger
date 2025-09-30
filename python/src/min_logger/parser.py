@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 import re
@@ -188,6 +187,7 @@ def read_binary(
             payload_len, thread_id, metric_id, timestamp = MSG_HEADER.unpack_from(
                 buffer, len(SYNC_BYTES)
             )
+            timestamp *= 1e-9
             if len(buffer) < HEADER_SIZE + payload_len:
                 # Not enough data for payload, wait for next chunk
                 break
@@ -196,4 +196,63 @@ def read_binary(
             handler.process_msg(timestamp, metric_id, thread_id, payload)
             buffer = buffer[msg_end:]
 
+    handler.finish()
+
+
+def _timescale_to_dt(time_scale, time_value) -> float:
+    return time_value * (1e-9 * (1000**time_scale))
+
+
+def read_micro_binary(
+    fd: BinaryIO, meta: dict[int, MetricEntryData], perfetto_path: Optional[Path] = None
+):
+    handler = MessageHandler(meta, perfetto_path=perfetto_path)
+    truncated_ids = {v & 0xFFFF: v for v in meta.keys()}
+    truncated_ids[THREAD_NAME_MSG_ID & 0xFFFF] = THREAD_NAME_MSG_ID
+    timestamp = 0
+    """
+    Searches a binary file byte by byte for words that match the truncated_ids.
+    Then parses the remainder of the MicroMessage structure:
+        struct MicroMessage {
+            uint16_t truncated_id;
+            uint8_t thread_id : 4;
+            uint8_t time_scale : 2;
+            uint16_t time_value : 10;
+        };
+    Yields dicts with the parsed fields.
+    """
+
+    BUFFER_SIZE = 4096
+    buffer = b""
+    while True:
+        chunk = fd.read(BUFFER_SIZE)
+        if not chunk:
+            break
+        buffer += chunk
+        # Minimum message size is 4 bytes
+        min_msg_size = 4
+        i = 0
+        while i <= len(buffer) - min_msg_size:
+            truncated_id = int.from_bytes(buffer[i : i + 2], "little")
+            if truncated_id not in truncated_ids:
+                i += 1
+                continue
+            # Check if we have enough bytes for the rest of the message
+            if i + 4 > len(buffer):
+                break  # Wait for more data
+            bitfield = int.from_bytes(buffer[i + 2 : i + 4], "little")
+
+            thread_id = (bitfield >> 0) & 0xF
+            time_scale = (bitfield >> 4) & 0x3
+            time_value = (bitfield >> 6) & 0x3FF
+            # print(hex(truncated_id), thread_id, time_scale, time_value)
+            dt = _timescale_to_dt(time_scale, time_value)
+            timestamp += dt
+
+            # You may want to reconstruct a timestamp from time_scale/time_value here
+            # For now, just pass 0 as timestamp and truncated_id as metric_id
+            handler.process_msg(timestamp, truncated_ids[truncated_id], thread_id, "")
+            i += 4
+        # Keep any leftover bytes for next chunk
+        buffer = buffer[i:]
     handler.finish()

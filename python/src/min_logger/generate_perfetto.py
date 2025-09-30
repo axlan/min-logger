@@ -33,6 +33,13 @@ class PerfettoBuilder:
         # subsequent packets:
         # https://perfetto.dev/docs/reference/synthetic-track-event#interning-data-for-trace-size-optimization
         self.internal_iids = 1
+        self.start_time = 0
+
+    def _get_timestamp_ns(self, timestamp: float):
+        if self.start_time is None:
+            self.start_time = timestamp
+
+        return int((timestamp - self.start_time) * 1e9)
 
     def write_to_file(self, out_path: Path):
         with open(out_path, "wb") as f:
@@ -87,7 +94,7 @@ class PerfettoBuilder:
         else:
             proc_desc = self._get_or_create_process_if_needed(timestamp)
             packet = self.builder.add_packet()
-            packet.timestamp = int(timestamp * 1e9)
+            packet.timestamp = self._get_timestamp_ns(timestamp)
             desc = packet.track_descriptor
             desc.uuid = uuid.uuid4().int & ((1 << 63) - 1)
             desc.thread.pid = proc_desc.process.pid
@@ -102,7 +109,7 @@ class PerfettoBuilder:
             return self.process_desc
         else:
             packet = self.builder.add_packet()
-            packet.timestamp = int(timestamp * 1e9)
+            packet.timestamp = self._get_timestamp_ns(timestamp)
             desc = packet.track_descriptor
             desc.uuid = uuid.uuid4().int & ((1 << 63) - 1)
             desc.process.pid = self._PROCESS_PID
@@ -122,7 +129,7 @@ class PerfettoBuilder:
         thread_descr = self._get_or_create_thread_if_needed(timestamp, thread_id)
 
         packet = self.builder.add_packet()
-        packet.timestamp = int(timestamp * 1e9)
+        packet.timestamp = self._get_timestamp_ns(timestamp)
         packet.track_event.type = event_type
         packet.track_event.track_uuid = thread_descr.uuid
         packet.track_event.name = name
