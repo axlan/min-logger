@@ -14,15 +14,15 @@ void task(string msg) {
 
     for (uint64_t i = 0; i < 5; i++) {
         MIN_LOGGER_ENTER(MIN_LOGGER_DEBUG, "TASK_LOOP");
-        MIN_LOGGER_RECORD_STRING(MIN_LOGGER_INFO, "T_NAME", msg.c_str());
-        MIN_LOGGER_RECORD_VALUE(MIN_LOGGER_INFO, "LOOP_COUNT", MIN_LOGGER_PAYLOAD_U64, i);
-        MIN_LOGGER_LOG(MIN_LOGGER_INFO, "task${T_NAME}: ${LOOP_COUNT}");
+        MIN_LOGGER_RECORD_AND_LOG_VALUE(MIN_LOGGER_INFO, "LOOP_COUNT", uint64_t,
+                                        i, "task: ${LOOP_COUNT}");
         MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, "TASK_LOOP");
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
 
 int main() {
+    *min_logger_serialize_format() = MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
     min_logger_write_thread_names();
 
     // Constructs the new thread and runs it. Does not block execution.
@@ -34,7 +34,7 @@ int main() {
     t1.join();
     t2.join();
 
-    *min_logger_is_verbose() = true;
+    *min_logger_serialize_format() = MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT;
 
     // Constructs the new thread and runs it. Does not block execution.
     thread t3(task, "3");
