@@ -11,10 +11,12 @@ from pathlib import Path
 import re
 from typing import NamedTuple, Optional
 
+from .built_in_types import get_struct_format
+
 _logger = logging.getLogger("min_logger.builder")
 
 
-class MetricType(StrEnum):
+class ProfilerType(StrEnum):
     """Identifies type of metric"""
 
     @staticmethod
@@ -24,9 +26,6 @@ class MetricType(StrEnum):
         """
         return name
 
-    LOG = auto()
-    RECORD_STRING = auto()
-    RECORD_U64 = auto()
     ENTER = auto()
     EXIT = auto()
 
@@ -35,13 +34,15 @@ class MetricEntryData(NamedTuple):
     """Metric metadata"""
 
     id: int
-    type: MetricType
     source_file: Path
     source_line: int
     level: int
     tags: list[str]
+    value_type: Optional[str] = None
+    is_array: bool = False
     msg: Optional[str] = None
     name: Optional[str] = None
+    profiler_type: Optional[ProfilerType] = None
 
 
 def json_dump_helper(obj):
@@ -93,16 +94,21 @@ def _parse_args(raw_contents: str) -> list[str]:
     return [a.strip() for a in args]
 
 
+_METRIC_RE = re.compile(r"MIN_LOGGER_[A-Z_]+\((.+?)\);", flags=re.DOTALL)
+
 # MIN_LOGGER_LOG(MIN_LOGGER_INFO, "task{T_NAME}: {LOOP_COUNT}");
 # MIN_LOGGER_LOG_ID(0xDEADBEEF, MIN_LOS(_ID)?\((.GGER_INFO, "hello world trunc explicit ID");
-_LOG_METRIC_RE = re.compile(r"MIN_LOGGER_LOG(_ID)?\((.+)\)")
-# MIN_LOGGER_RECORD_STRING(MIN_LOGGER_INFO, "T_NAME", msg.c_str());
-_RECORD_STRING_METRIC_RE = re.compile(r"MIN_LOGGER_RECORD_STRING(_ID)?\((.+)\)")
-# MIN_LOGGER_RECORD_U64(MIN_LOGGER_INFO, "LOOP_COUNT", i);
-_RECORD_VALUE_METRIC_RE = re.compile(r"MIN_LOGGER_RECORD_VALUE(_ID)?\((.+)\)")
+_LOG_METRIC_RE = re.compile(r"MIN_LOGGER_LOG(_ID)?\((.+?)\);", flags=re.DOTALL)
+# define MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)
+# define MIN_LOGGER_RECORD_AND_LOG_VALUE_ID(id, level, name, type, value, msg)
+# define MIN_LOGGER_RECORD_VALUE_ARRAY_ID(id, level, name, type, values, num_values)
+# define MIN_LOGGER_RECORD_AND_LOG_VALUE_ARRAY_ID(id, level, name, type, values, num_values, msg)
+_RECORD_VALUE_METRIC_RE = re.compile(
+    r"MIN_LOGGER_RECORD(_AND_LOG)?_VALUE(_ARRAY)?(_ID)?\((.+?)\);", flags=re.DOTALL
+)
 # MIN_LOGGER_ENTER(MIN_LOGGER_DEBUG, "TASK_LOOP");
 # MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, "TASK_LOOP");
-_ENTER_METRIC_RE = re.compile(r"MIN_LOGGER_(ENTER|EXIT)(_ID)?\((.+)\)")
+_ENTER_METRIC_RE = re.compile(r"MIN_LOGGER_(ENTER|EXIT)(_ID)?\((.+?)\);", flags=re.DOTALL)
 
 
 def get_file_matches(src_paths: list[Path], extensions: list[str], recursive: bool) -> list[Path]:
@@ -129,7 +135,9 @@ def get_file_matches(src_paths: list[Path], extensions: list[str], recursive: bo
     return matches
 
 
-def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, MetricEntryData]:
+def get_metric_entries(
+    files: list[Path], root_paths: list[Path], type_defs
+) -> dict[int, MetricEntryData]:
     """Parse metric macros from source files.
 
     Args:
@@ -140,24 +148,33 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
 
     for file in files:
         with open(file) as fd:
+            content = fd.read()
             for root in root_paths:
                 try:
                     file = file.relative_to(root)
                 except ValueError:
                     pass
-            for i, line in enumerate(fd):
-                line_num = i + 1
-                location_str = f"{file}:{line_num}"
 
-                metric_type: Optional[MetricType] = None
+            current_line = 1
+            last_pos = 0
+            for m in _METRIC_RE.finditer(content):
+                current_line += content.count("\n", last_pos, m.start())
+                last_pos = m.start()
+                line_num = current_line
+                location_str = f"{file}:{line_num}"
+                lines = m.group(0)
+
+                profiler_type: Optional[ProfilerType] = None
                 parsed_args: list[str] = []
                 has_id = False
+                is_array = False
 
                 raw_strings = {
                     "severity": "",
                     "msg": None,
                     "name": None,
                     "msg_id": None,
+                    "value_type": None,
                 }
 
                 param_positions: dict[str, int] = {}
@@ -165,56 +182,41 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
                 name = None
                 msg = None
 
-                m = _LOG_METRIC_RE.search(line)
+                m = _LOG_METRIC_RE.search(lines)
                 if m is not None:
-                    metric_type = MetricType.LOG
                     has_id = bool(m.group(1))
                     parsed_args = _parse_args(m.group(2))
                     param_positions["severity"] = 0
                     param_positions["msg"] = 1
 
-                m = _RECORD_STRING_METRIC_RE.search(line)
+                m = _RECORD_VALUE_METRIC_RE.search(lines)
                 if m is not None:
-                    metric_type = MetricType.RECORD_STRING
-                    has_id = bool(m.group(1))
-                    parsed_args = _parse_args(m.group(2))
-                    param_positions["severity"] = 0
-                    param_positions["name"] = 1
-                    param_positions["value"] = 2
-
-                m = _RECORD_VALUE_METRIC_RE.search(line)
-                if m is not None:
-                    has_id = bool(m.group(1))
-                    parsed_args = _parse_args(m.group(2))
+                    has_msg = bool(m.group(1))
+                    is_array = bool(m.group(2))
+                    has_id = bool(m.group(3))
+                    parsed_args = _parse_args(m.group(4))
                     param_positions["severity"] = 0
                     param_positions["name"] = 1
                     param_positions["value_type"] = 2
                     param_positions["value"] = 3
+                    if is_array:
+                        param_positions["num_values"] = len(param_positions)
+                    if has_msg:
+                        param_positions["msg"] = len(param_positions)
 
-                    if len(param_positions) == len(parsed_args):
-                        value_type = parsed_args[2]
-                        if value_type == "MIN_LOGGER_PAYLOAD_U64":
-                            metric_type = MetricType.RECORD_U64
-                        else:
-                            raise ValueError(
-                                f'Unsupported record type "{value_type}" in {location_str}.'
-                            )
-                    else:
-                        metric_type = MetricType.RECORD_U64
-
-                m = _ENTER_METRIC_RE.search(line)
+                m = _ENTER_METRIC_RE.search(lines)
                 if m is not None:
                     if m.group(1) == "ENTER":
-                        metric_type = MetricType.ENTER
+                        profiler_type = ProfilerType.ENTER
                     else:
-                        metric_type = MetricType.EXIT
+                        profiler_type = ProfilerType.EXIT
                     has_id = bool(m.group(2))
                     parsed_args = _parse_args(m.group(3))
                     param_positions["severity"] = 0
                     param_positions["name"] = 1
 
-                if metric_type is not None:
-                    error_msg = f'Could not parse "{line.strip()}" at {location_str}.'
+                if len(param_positions) > 0:
+                    error_msg = f'Could not parse "{lines.strip()}" at {location_str}.'
 
                     if has_id:
                         for key in param_positions:
@@ -249,21 +251,22 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
                                 f'{error_msg} Metric name "{raw_strings["name"]}" not string literal.'
                             )
 
-                        if name in name_table:
+                        if (
+                            profiler_type not in {ProfilerType.ENTER, ProfilerType.EXIT}
+                            and name in name_table
+                        ):
                             others = name_table[name]
-                            if len(others) != 1 or {metric_type, others[0].type} != {
-                                MetricType.ENTER,
-                                MetricType.EXIT,
-                            }:
-                                other_location_str = (
-                                    f"{others[0].source_file}:{others[0].source_line}"
-                                )
-                                _logger.warning(
-                                    'Duplicate metric name "%s" in %s and %s.',
-                                    name,
-                                    other_location_str,
-                                    location_str,
-                                )
+                            other_location_str = f"{others[0].source_file}:{others[0].source_line}"
+                            _logger.warning(
+                                'Duplicate metric name "%s" in %s and %s.',
+                                name,
+                                other_location_str,
+                                location_str,
+                            )
+
+                    if raw_strings["value_type"] is not None:
+                        if raw_strings["value_type"] not in type_defs:
+                            get_struct_format(raw_strings["value_type"])
 
                     metric_id = 0
                     if raw_strings["msg_id"] is not None:
@@ -288,7 +291,9 @@ def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, M
 
                     metrics[metric_id] = MetricEntryData(
                         id=metric_id,
-                        type=metric_type,
+                        value_type=raw_strings["value_type"],
+                        is_array=is_array,
+                        profiler_type=profiler_type,
                         source_file=file,
                         source_line=line_num,
                         level=severity,

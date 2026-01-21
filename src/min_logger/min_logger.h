@@ -9,13 +9,15 @@
 typedef uint32_t MinLoggerCRC;
 
 #ifdef __cplusplus
+    #include <type_traits>
+
     #include "min_logger_crc.h"
 
     #define __MIN_LOGGER_LOG_MSG_GEN_ID(str) \
         static constexpr MinLoggerCRC __min_log_id = MIN_LOGGER_CPP_CRC32(str);
 
-    #define __MIN_LOGGER_ASSERT_TYPE(x, expected_type)                 \
-        static_assert(std::is_same<decltype(x), expected_type>::value, \
+    #define __MIN_LOGGER_ASSERT_TYPE(x, expected_type)                                   \
+        static_assert(std::is_same<std::decay<decltype(x)>::type, expected_type>::value, \
                       "Type mismatch: expected " #expected_type)
 
 extern "C" {
@@ -76,20 +78,19 @@ extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMA
             (*min_logger_serialize_format())(id, NULL, 0);                   \
         }
 
-    #define MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)          \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {  \
-            __MIN_LOGGER_ASSERT_TYPE(value, type);                            \
-            (*min_logger_serialize_format())(id, &value, sizeof(type)); \
+    #define MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)         \
+        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) { \
+            __MIN_LOGGER_ASSERT_TYPE(value, type);                           \
+            (*min_logger_serialize_format())(id, &value, sizeof(type));      \
         }
 
     #define MIN_LOGGER_RECORD_AND_LOG_VALUE_ID(id, level, name, type, value, msg) \
         MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)
 
-    #define MIN_LOGGER_RECORD_VALUE_ARRAY_ID(id, level, name, type, values, num_values)    \
-        __MIN_LOGGER_ASSERT_TYPE(*values, type);                                           \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {               \
-            __MIN_LOGGER_ASSERT_TYPE(value, type);                                         \
-            (*min_logger_serialize_format())(id, values, sizeof(type) * num_values); \
+    #define MIN_LOGGER_RECORD_VALUE_ARRAY_ID(id, level, name, type, values, num_values) \
+        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {            \
+            __MIN_LOGGER_ASSERT_TYPE(*values, type);                                    \
+            (*min_logger_serialize_format())(id, values, sizeof(type) * num_values);    \
         }
 
     #define MIN_LOGGER_RECORD_AND_LOG_VALUE_ARRAY_ID(id, level, name, type, values, num_values, \
