@@ -7,6 +7,9 @@
     },
     "Rect": {
         "pos": "Point",
-        "size": "Point"
+        "size": "Point",
+        "padding": "10x",
+        "str": "10s",
+        "bytes": "10s"
     }
 }

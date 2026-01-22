@@ -49,7 +49,7 @@ def get_struct_format(c_type: str) -> str:
     # These sizes are generally fixed, but if they are not correct (e.x. AVR double is 32bit), you can overwrite them with type_def json.
     fixed_size_types = {
         # Integer types - signed
-        "char": "b",
+        "char": "s",
         "signed char": "b",
         "short": "h",
         "short int": "h",

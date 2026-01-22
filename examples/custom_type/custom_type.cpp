@@ -5,12 +5,15 @@
 struct Point {
     float x;
     float y;
-    int dummy[2];
+    int vals[2];
 };
 
 struct Rect {
     Point pos;
     Point size;
+    uint8_t padding[10];
+    char str[10];
+    uint8_t bytes[10];
 };
 
 #pragma pack()  // Revert to default packing alignment
@@ -22,7 +25,11 @@ int main() {
     MIN_LOGGER_RECORD_AND_LOG_VALUE(MIN_LOGGER_INFO, "test_int", int, a,
                                     "An integer value: ${test_int}");
 
-    Rect rects[2] = {{Point{0.0f, 0.0f, {1, 2}}, Point{5.0f, 5.0f}},
+    char msg[] = "hello";
+    MIN_LOGGER_RECORD_AND_LOG_VALUE_ARRAY(MIN_LOGGER_INFO, "test_str", char, msg, strlen(msg),
+                                          "An integer value: ${test_str}");
+
+    Rect rects[2] = {{Point{0.0f, 0.0f, {1, 2}}, Point{5.0f, 5.0f}, {1}, "ccat", {2}},
                      {Point{1.0f, 1.0f}, Point{10.0f, 10.0f}}};
     MIN_LOGGER_RECORD_AND_LOG_VALUE(MIN_LOGGER_INFO, "test_rect", Rect, rects[0],
                                     "rectangle: ${test_rect}");

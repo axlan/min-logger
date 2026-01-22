@@ -12,7 +12,7 @@ from jsonargparse import auto_cli
 from jsonargparse.typing import Path_fc, Path_fr, path_type
 
 from min_logger.builder import get_file_matches, get_metric_entries, json_dump_helper
-from min_logger.parser import _c_type_to_python_data
+from min_logger.parser import _c_type_to_python_data, SUBSTITUTE_PATTERN
 
 Path_dr = path_type("dw", docstring="path to a directory that exists and is writeable")
 
@@ -53,12 +53,26 @@ def command(
     if type_defs:
         with open(type_defs, "r") as fd:
             type_defs_data = json.load(fd)
-        for type_name in type_defs_data:
-            # TODO: Check sizes here?
-            _c_type_to_python_data(None, type_name, type_defs_data)
 
     candidate_files = get_file_matches(src_paths, extensions, recursive)
-    entries = get_metric_entries(candidate_files, root_paths, type_defs_data)
+    entries = get_metric_entries(candidate_files, root_paths)
+
+    value_names = set(
+        e.name for e in entries.values() if e.name is not None and e.value_type is not None
+    )
+    for entry in entries.values():
+        if entry.value_type is not None:
+            # TODO: Check sizes here?
+            _c_type_to_python_data(None, entry.value_type, type_defs_data)
+        if entry.msg is not None:
+            m = SUBSTITUTE_PATTERN.search(entry.msg)
+            if m:
+                if m.group(1) not in value_names:
+                    _logger.warning(
+                        "In message format '%s', the variable '%s' is not defined as a logged value.",
+                        entry.msg,
+                        m.group(1),
+                    )
 
     description = {"entries": [e._asdict() for e in entries.values()], "type_defs": type_defs_data}
 

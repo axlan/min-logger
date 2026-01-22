@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import struct
 from typing import Any, BinaryIO, Optional, List
+import csv
 
 from min_logger.builder import MetricEntryData, THREAD_NAME_MSG_ID, SEVERITY_LEVELS, ProfilerType
 from min_logger.generate_perfetto import PerfettoBuilder
@@ -11,14 +12,16 @@ from min_logger.built_in_types import get_struct_format
 _logger = logging.getLogger("min_logger.parser")
 
 
+SUBSTITUTE_PATTERN = re.compile(r"\$\{(.+?)\}")
+
+
 def _substitute_vars(text, values):
-    pattern = r"\$\{(.+?)\}"
 
     def replacer(match):
         key = match.group(1)
         return str(values.get(key, match.group(0)))
 
-    return re.sub(pattern, replacer, text)
+    return re.sub(SUBSTITUTE_PATTERN, replacer, text)
 
 
 def _severity_string(severity):
@@ -34,7 +37,7 @@ def _severity_string(severity):
         return "CRITICAL"
 
 
-FORMAT_CHARS = "bBhHiIlLqQfdspPc?"
+FORMAT_CHARS = "bBhHiIlLqQfdspPc?x"
 TYPE_RE = re.compile(r"([0-9]*)([^0-9].*)")
 
 
@@ -89,7 +92,8 @@ def _c_type_to_python_data(
                     field_value, field_size = _c_type_to_python_data(
                         next_field_data, field_type, type_defs, seen
                     )
-                    result[field_name] = field_value
+                    if field_value is not None:
+                        result[field_name] = field_value
                     offset += field_size
 
                 seen.pop()
@@ -104,11 +108,18 @@ def _c_type_to_python_data(
 
     # Parse as struct format string
     size = struct.calcsize(format_str)
-    if data is None:
+    if data is None or single_type == "x":
         value = None
     else:
         values = struct.unpack("<" + format_str, data[:size])
         value = values[0] if len(values) == 1 else list(values)
+        if isinstance(value, bytes):
+            try:
+                str_val = value.rstrip(b"\x00").decode("utf-8")
+                if str_val.isprintable():
+                    value = str_val
+            except UnicodeDecodeError:
+                pass
 
     return value, size
 
@@ -119,16 +130,92 @@ class MessageHandler:
         meta,
         print_messages=True,
         perfetto_path: Optional[Path] = None,
+        csv_dir: Optional[Path] = None,
     ) -> None:
         self.log_metrics: dict[int, MetricEntryData] = meta["entries"]
         self.type_defs: dict[str, str | dict] = meta["type_defs"]
         self.print_messages = print_messages
         self.perfetto_path = perfetto_path
+        self.csv_dir = csv_dir
+        if self.csv_dir is not None:
+            self.csv_dir.mkdir(parents=True, exist_ok=True)
+
+        # Map metric_key -> {file: fobj, writer: DictWriter, fieldnames: list}
+        self._csv_files: dict[str, dict] = {}
 
         self.last_values: dict[str, str] = {}
         self.unknown_ids: set[int] = set()
         self.thread_names: dict[int, str] = {}
         self.perfetto_gen = PerfettoBuilder()
+
+    def _sanitize_filename(self, name: str) -> str:
+        # Keep only safe characters
+        return re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+
+    def _flatten_value(self, v: Any, out: dict, prefix: str = "") -> None:
+        if isinstance(v, dict):
+            for k, val in v.items():
+                new_prefix = f"{prefix}.{k}" if prefix else k
+                self._flatten_value(val, out, new_prefix)
+        elif isinstance(v, list):
+            for i, val in enumerate(v):
+                new_prefix = f"{prefix}_{i}" if prefix else f"item_{i}"
+                self._flatten_value(val, out, new_prefix)
+        else:
+            out[prefix or "value"] = v
+
+    def _write_metric_csv(
+        self, metric_name: str, timestamp: float, value: Any, index: Optional[int] = None
+    ) -> None:
+        if metric_name is None:
+            return
+        if self.csv_dir is None:
+            return
+
+        # Prepare flattened row
+        flattened: dict = {}
+        self._flatten_value(value, flattened)
+
+        # CSV file key by metric_name
+        entry = self._csv_files.get(metric_name)
+
+        if entry is None:
+            # Create file and writer
+            fname = self.csv_dir / f"{self._sanitize_filename(metric_name)}.csv"
+            new_file = not fname.exists()
+            fobj = open(fname, "a", newline="", encoding="utf-8")
+            implicit_fields = ["timestamp"]
+            if index is not None:
+                implicit_fields.append("index")
+            fieldnames = implicit_fields + list(flattened.keys())
+            writer = csv.DictWriter(fobj, fieldnames=fieldnames)
+            if new_file:
+                writer.writeheader()
+            self._csv_files[metric_name] = {
+                "file": fobj,
+                "writer": writer,
+                "fieldnames": fieldnames,
+            }
+            entry = self._csv_files[metric_name]
+
+        # Check for new keys
+        current_fields = entry["fieldnames"]
+        new_keys = [k for k in flattened.keys() if k not in current_fields]
+        if new_keys:
+            current_fields = current_fields + new_keys
+            entry["fieldnames"] = current_fields
+            entry["writer"] = csv.DictWriter(entry["file"], fieldnames=current_fields)
+            entry["writer"].writeheader()
+
+        # Build row with all fields
+        row = {fn: "" for fn in entry["fieldnames"]}
+        row["timestamp"] = f"{timestamp:.6f}"
+        if index is not None:
+            row["index"] = str(index)
+        for k, v in flattened.items():
+            row[k] = v
+
+        entry["writer"].writerow(row)
 
     def process_msg(self, timestamp: float, metric_id: int, thread_id: int, value: bytes):
 
@@ -155,27 +242,30 @@ class MessageHandler:
         metric = self.log_metrics[metric_id]
 
         if metric.name is not None and metric.value_type is not None:
-            if metric.value_type == "char" and metric.is_array:
-                self.last_values[metric.name] = value.decode(encoding="utf-8", errors="replace")
-            else:
-                if metric.is_array:
-                    _, size = _c_type_to_python_data(None, metric.value_type, self.type_defs)
-                    if len(value) % size != 0:
-                        raise ValueError(
-                            f"Payload size {len(value)} is not a multiple of element size {size} for metric ID 0x{metric_id:08X}"
-                        )
-                    else:
-                        array_count = len(value) // size
-                        full_type = f"{array_count}{metric.value_type}"
-                else:
-                    full_type = metric.value_type
-                self.last_values[metric.name], size = _c_type_to_python_data(
-                    value, full_type, self.type_defs
-                )
-                if size < len(value):
+            if metric.is_array:
+                _, size = _c_type_to_python_data(None, metric.value_type, self.type_defs)
+                if len(value) % size != 0:
                     raise ValueError(
-                        f"Parsed size {size} is smaller than payload size {len(value)} for metric ID 0x{metric_id:08X}"
+                        f"Payload size {len(value)} is not a multiple of element size {size} for metric ID 0x{metric_id:08X}"
                     )
+                else:
+                    array_count = len(value) // size
+                    full_type = f"{array_count}{metric.value_type}"
+            else:
+                full_type = metric.value_type
+            new_value, size = _c_type_to_python_data(value, full_type, self.type_defs)
+            self.last_values[metric.name] = new_value
+            # Write CSV if requested and metric has a name
+            if self.csv_dir is not None:
+                if isinstance(new_value, list):
+                    for i, elem in enumerate(new_value):
+                        self._write_metric_csv(metric.name, timestamp, elem, i)
+                else:
+                    self._write_metric_csv(metric.name, timestamp, new_value)
+            if size < len(value):
+                raise ValueError(
+                    f"Parsed size {size} is smaller than payload size {len(value)} for metric ID 0x{metric_id:08X}"
+                )
 
         thread_name = (
             f"thread_id_{thread_id}"
@@ -209,6 +299,10 @@ class MessageHandler:
         if self.perfetto_path:
             self.perfetto_gen.write_to_file(self.perfetto_path)
 
+        # Close any open CSV files
+        for entry in list(self._csv_files.values()):
+            entry["file"].close()
+
         if len(self.unknown_ids) > 0:
             _logger.warning("Log contained unknown IDs: %s", str(self.unknown_ids))
 
@@ -232,7 +326,7 @@ HEADER_SIZE = MSG_HEADER.size + len(SYNC_BYTES)
 def read_binary(
     fd: BinaryIO, meta: dict[int, MetricEntryData], perfetto_path: Optional[Path] = None
 ):
-    handler = MessageHandler(meta, perfetto_path=perfetto_path)
+    handler = MessageHandler(meta, perfetto_path=perfetto_path, csv_dir=Path("/tmp/min_logger_csv"))
     buffer = b""
     while True:
         chunk = fd.read(CHUNK_SIZE)
@@ -321,7 +415,7 @@ def read_micro_binary(
 
             # You may want to reconstruct a timestamp from time_scale/time_value here
             # For now, just pass 0 as timestamp and truncated_id as metric_id
-            handler.process_msg(timestamp, truncated_ids[truncated_id], thread_id, "")
+            handler.process_msg(timestamp, truncated_ids[truncated_id], thread_id, b"")
             i += 4
         # Keep any leftover bytes for next chunk
         buffer = buffer[i:]

@@ -11,6 +11,7 @@ note UV dependancy
 
 TODO:
 * Add way to validate type sizes. Could use objdump of symbols, or GDB? GDB with seperated debug symbols?
+* Make parsing robust to transmission errors, add advice for fixing format specification errors
 * Set custom levels per file
 * Whitelist by ID
 * Autogenerate id's - could use cmake to generate unique token for each file to concate, no obvious preprocessor only way

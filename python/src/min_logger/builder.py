@@ -135,9 +135,7 @@ def get_file_matches(src_paths: list[Path], extensions: list[str], recursive: bo
     return matches
 
 
-def get_metric_entries(
-    files: list[Path], root_paths: list[Path], type_defs
-) -> dict[int, MetricEntryData]:
+def get_metric_entries(files: list[Path], root_paths: list[Path]) -> dict[int, MetricEntryData]:
     """Parse metric macros from source files.
 
     Args:
@@ -263,10 +261,6 @@ def get_metric_entries(
                                 other_location_str,
                                 location_str,
                             )
-
-                    if raw_strings["value_type"] is not None:
-                        if raw_strings["value_type"] not in type_defs:
-                            get_struct_format(raw_strings["value_type"])
 
                     metric_id = 0
                     if raw_strings["msg_id"] is not None:
