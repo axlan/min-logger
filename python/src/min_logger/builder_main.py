@@ -12,43 +12,11 @@ from jsonargparse import auto_cli
 from jsonargparse.typing import Path_fc, Path_fr, path_type
 
 from min_logger.builder import get_file_matches, get_metric_entries, json_dump_helper
+from min_logger.parser import _c_type_to_python_data
 
 Path_dr = path_type("dw", docstring="path to a directory that exists and is writeable")
 
 _logger = logging.getLogger("min_logger.builder_main")
-
-
-def validate_type_defs(type_defs_data: dict):
-    if not isinstance(type_defs_data, dict):
-        raise ValueError("type_defs_data must be a dict")
-
-    # Valid Python struct format characters
-    valid_formats = set("bBhHiIlLqQfdspPc?")
-
-    def is_valid_type(type_value, seen=None):
-        if seen is None:
-            seen = set()
-
-        if isinstance(type_value, str):
-            if len(type_value) == 1:
-                if type_value not in valid_formats:
-                    raise ValueError(f"Invalid format character: '{type_value}'")
-            else:
-                if type_value in seen:
-                    raise ValueError(f"Circular reference detected in type: '{type_value}'")
-                if type_value not in type_defs_data:
-                    raise ValueError(f"Undefined type reference: '{type_value}'")
-                seen.add(type_value)
-                is_valid_type(type_defs_data[type_value], seen)
-                seen.remove(type_value)
-        elif isinstance(type_value, dict):
-            for field_type in type_value.values():
-                is_valid_type(field_type, seen.copy())
-        else:
-            raise ValueError(f"Invalid type value: {type_value}. Must be a string or dict.")
-
-    for type_def in type_defs_data.values():
-        is_valid_type(type_def)
 
 
 def command(
@@ -85,7 +53,9 @@ def command(
     if type_defs:
         with open(type_defs, "r") as fd:
             type_defs_data = json.load(fd)
-        validate_type_defs(type_defs_data)
+        for type_name in type_defs_data:
+            # TODO: Check sizes here?
+            _c_type_to_python_data(None, type_name, type_defs_data)
 
     candidate_files = get_file_matches(src_paths, extensions, recursive)
     entries = get_metric_entries(candidate_files, root_paths, type_defs_data)

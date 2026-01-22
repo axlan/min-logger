@@ -1,6 +1,6 @@
 
 add_executable(custom_type custom_type.cpp)
-target_link_libraries(custom_type PUBLIC min_logger example_utils)
+target_link_libraries(custom_type PUBLIC min_logger)
 target_link_options(custom_type
   PUBLIC
     LINKER:-Map=examples/custom_type/custom_type.map

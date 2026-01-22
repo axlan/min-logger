@@ -2,7 +2,8 @@
     "int": "i",
     "Point": {
         "x": "f",
-        "y": "f"
+        "y": "f",
+        "dummy": "2i"
     },
     "Rect": {
         "pos": "Point",

@@ -58,8 +58,7 @@ void send_thread_name_if_needed() {
         local_name_broadcast_count = name_broadcast_count;
         char name_buffer[PTHREAD_NAME_LEN] = {0};
         size_t name_len = min_logger_get_thread_name(name_buffer, PTHREAD_NAME_LEN);
-        (*min_logger_serialize_format())(THREAD_NAME_MSG_ID, name_buffer,
-                                         name_len);
+        (*min_logger_serialize_format())(THREAD_NAME_MSG_ID, name_buffer, name_len, false);
     }
 }
 
@@ -100,8 +99,10 @@ struct BinaryMsgHeader {
 };
     #pragma pack()  // Revert to default packing alignment
 
-void min_logger_default_binary_serializer(MinLoggerCRC msg_id,
-                                          const void* payload, size_t payload_len) {
+void min_logger_default_binary_serializer(MinLoggerCRC msg_id, const void* payload,
+                                          size_t payload_len, bool is_fixed_size) {
+    send_thread_name_if_needed();
+                                            
     static constexpr size_t _MAX_MSG_SIZE = 256;
     static constexpr size_t _MAX_PAYLOAD_SIZE = _MAX_MSG_SIZE - sizeof(BinaryMsgHeader);
     payload_len = (payload_len > _MAX_PAYLOAD_SIZE) ? _MAX_PAYLOAD_SIZE : payload_len;
@@ -136,8 +137,8 @@ struct MicroMessage {
 };
     #pragma pack()
 
-void min_logger_micro_binary_serializer(MinLoggerCRC msg_id,
-                                        const void* payload, size_t payload_len) {
+void min_logger_micro_binary_serializer(MinLoggerCRC msg_id, const void* payload,
+                                        size_t payload_len, bool is_fixed_size) {
     static std::atomic<uint64_t> last_timestamp_ns = {0};
 
     uint64_t current_timestamp_ns = get_time_nanoseconds();
@@ -158,7 +159,8 @@ const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT =
     min_logger_micro_binary_serializer;
 
 MinLoggerSerializeCallBack* min_logger_serialize_format() {
-    static MinLoggerSerializeCallBack serialize_format = MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
+    static MinLoggerSerializeCallBack serialize_format =
+        MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
     return &serialize_format;
 }
 

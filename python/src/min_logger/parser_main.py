@@ -3,7 +3,6 @@
 CLI interface for parsing min-logger logs.
 """
 
-from enum import Enum, auto
 import json
 import logging
 from typing import Optional
@@ -15,22 +14,21 @@ from jsonargparse.typing import Path_fr, path_type, Path_fc
 from min_logger.builder import (
     MetricEntryData,
 )
-from min_logger.parser import read_text, read_binary, read_micro_binary
+from min_logger.parser import read_binary, read_micro_binary
 
 Path_dr = path_type("dw", docstring="path to a directory that exists and is writeable")
 
 _logger = logging.getLogger("min_logger.parser_main")
 
-
-class LogFormat(Enum):
-    TEXT = auto()
-    BINARY = auto()
-    MICRO_BINARY = auto()
+PARSERS = {
+    "BINARY": read_binary,
+    "MICRO_BINARY": read_micro_binary,
+}
 
 
 def command(
     meta_data: Path_fr,  # pyright: ignore[reportInvalidTypeForm]
-    log_format: LogFormat = None,  # pyright: ignore[reportArgumentType]
+    log_format: str = None,  # pyright: ignore[reportArgumentType]
     log_file: Optional[Path_fr] = None,  # pyright: ignore[reportInvalidTypeForm]
     perfetto_out: Optional[Path_fc] = None,  # pyright: ignore[reportInvalidTypeForm]
 ):  # pylint: disable=dangerous-default-value
@@ -43,25 +41,19 @@ def command(
 
     if log_format is None:
         raise ValueError("--log_format is required")
+    if log_format.upper() not in PARSERS:
+        raise ValueError(f"Unsupported log format: {log_format}")
 
     with open(meta_data, "r") as fd:
         meta_data = json.load(fd)
-        meta_data = {e["id"]: MetricEntryData(**e) for e in meta_data}
-
-    is_binary = log_format in {LogFormat.BINARY, LogFormat.MICRO_BINARY}
+        meta_data["entries"] = {e["id"]: MetricEntryData(**e) for e in meta_data["entries"]}
 
     if log_file is None:
-        log_fd = sys.stdin.buffer if is_binary else sys.stdin
+        log_fd = sys.stdin.buffer
     else:
-        mode = "rb" if is_binary else "r"
-        log_fd = open(log_file, mode)
+        log_fd = open(log_file, "rb")
 
-    if log_format == LogFormat.TEXT:
-        read_text(log_fd, meta_data, perfetto_out)  # type: ignore
-    elif log_format == LogFormat.BINARY:
-        read_binary(log_fd, meta_data, perfetto_out)  # type: ignore
-    elif log_format == LogFormat.MICRO_BINARY:
-        read_micro_binary(log_fd, meta_data, perfetto_out)  # type: ignore
+    PARSERS[log_format.upper()](log_fd, meta_data, perfetto_out)  # type: ignore
 
 
 def main():

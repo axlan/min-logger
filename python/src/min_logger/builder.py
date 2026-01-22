@@ -94,7 +94,7 @@ def _parse_args(raw_contents: str) -> list[str]:
     return [a.strip() for a in args]
 
 
-_METRIC_RE = re.compile(r"MIN_LOGGER_[A-Z_]+\((.+?)\);", flags=re.DOTALL)
+_METRIC_RE = re.compile(r"^\s*MIN_LOGGER_[A-Z_]+\((.+?)\);", flags=re.DOTALL | re.MULTILINE)
 
 # MIN_LOGGER_LOG(MIN_LOGGER_INFO, "task{T_NAME}: {LOOP_COUNT}");
 # MIN_LOGGER_LOG_ID(0xDEADBEEF, MIN_LOS(_ID)?\((.GGER_INFO, "hello world trunc explicit ID");
