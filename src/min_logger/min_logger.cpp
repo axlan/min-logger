@@ -52,16 +52,6 @@ static std::pair<unsigned, unsigned> convertNanoseconds(uint64_t ns) {
     return {scale, static_cast<unsigned>(value)};
 }
 
-void send_thread_name_if_needed() {
-    // Handles overflow implicitly
-    if (local_name_broadcast_count != name_broadcast_count) {
-        local_name_broadcast_count = name_broadcast_count;
-        char name_buffer[PTHREAD_NAME_LEN] = {0};
-        size_t name_len = min_logger_get_thread_name(name_buffer, PTHREAD_NAME_LEN);
-        (*min_logger_serialize_format())(THREAD_NAME_MSG_ID, name_buffer, name_len, false);
-    }
-}
-
 static size_t get_thread_idx() {
     if (local_thread_idx == -1) {
         local_thread_idx = thread_count++;
@@ -88,6 +78,16 @@ void __attribute__((weak)) min_logger_write(const uint8_t* msg, size_t len_bytes
     fwrite(msg, sizeof(uint8_t), len_bytes, stdout);
 }
 
+void send_thread_name_if_needed() {
+    // Handles overflow implicitly
+    if (local_name_broadcast_count != name_broadcast_count) {
+        local_name_broadcast_count = name_broadcast_count;
+        char name_buffer[PTHREAD_NAME_LEN] = {0};
+        size_t name_len = min_logger_get_thread_name(name_buffer, PTHREAD_NAME_LEN);
+        (*min_logger_serialize_format())(THREAD_NAME_MSG_ID, name_buffer, name_len, false);
+    }
+}
+
     #pragma pack(1)  // Set packing alignment to 1 byte
 struct BinaryMsgHeader {
     static constexpr uint16_t SYNC = 0xFAAF;
@@ -102,7 +102,7 @@ struct BinaryMsgHeader {
 void min_logger_default_binary_serializer(MinLoggerCRC msg_id, const void* payload,
                                           size_t payload_len, bool is_fixed_size) {
     send_thread_name_if_needed();
-                                            
+
     static constexpr size_t _MAX_MSG_SIZE = 256;
     static constexpr size_t _MAX_PAYLOAD_SIZE = _MAX_MSG_SIZE - sizeof(BinaryMsgHeader);
     payload_len = (payload_len > _MAX_PAYLOAD_SIZE) ? _MAX_PAYLOAD_SIZE : payload_len;
@@ -121,15 +121,15 @@ const MinLoggerSerializeCallBack MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT =
     min_logger_default_binary_serializer;
 
     #pragma pack(1)  // Set packing alignment to 1 byte
-struct MicroMessage {
+struct MicroMessageHeader {
     uint16_t truncated_id;
     uint8_t thread_id : 4;     // 4 bits
     uint8_t time_scale : 2;    // 2 bits
     uint16_t time_value : 10;  // 10 bits
 
-    MicroMessage() : truncated_id(0), thread_id(0), time_scale(0), time_value(0) {}
+    MicroMessageHeader() : truncated_id(0), thread_id(0), time_scale(0), time_value(0) {}
 
-    MicroMessage(MinLoggerCRC id, uint8_t thread, uint8_t scale, uint16_t value)
+    MicroMessageHeader(MinLoggerCRC id, uint8_t thread, uint8_t scale, uint16_t value)
         : truncated_id(static_cast<uint16_t>(id)),
           thread_id(thread & 0xF),
           time_scale(scale & 0x3),
@@ -139,6 +139,7 @@ struct MicroMessage {
 
 void min_logger_micro_binary_serializer(MinLoggerCRC msg_id, const void* payload,
                                         size_t payload_len, bool is_fixed_size) {
+    send_thread_name_if_needed();
     static std::atomic<uint64_t> last_timestamp_ns = {0};
 
     uint64_t current_timestamp_ns = get_time_nanoseconds();
@@ -151,9 +152,28 @@ void min_logger_micro_binary_serializer(MinLoggerCRC msg_id, const void* payload
 
     auto delta = convertNanoseconds(elapsed_ns);
 
-    MicroMessage message = MicroMessage(msg_id, get_thread_idx(), delta.first, delta.second);
 
-    min_logger_write(reinterpret_cast<uint8_t*>(&message), sizeof(message));
+
+    static constexpr size_t _MAX_MSG_SIZE = 256;
+    static constexpr size_t _MAX_PAYLOAD_SIZE = _MAX_MSG_SIZE - sizeof(BinaryMsgHeader);
+    payload_len = (payload_len > _MAX_PAYLOAD_SIZE) ? _MAX_PAYLOAD_SIZE : payload_len;
+    size_t total_size = payload_len + sizeof(MicroMessageHeader);
+
+    uint8_t msg_buffer[_MAX_MSG_SIZE];
+    MicroMessageHeader* header_ptr = reinterpret_cast<MicroMessageHeader*>(msg_buffer);
+    *header_ptr = MicroMessageHeader(msg_id, get_thread_idx(), delta.first, delta.second);
+
+    if (payload_len > 0) {
+        uint8_t* payload_ptr = msg_buffer + sizeof(MicroMessageHeader);
+        if (!is_fixed_size) {
+            *payload_ptr = payload_len;
+            payload_ptr++;
+            total_size++;
+        }
+        memcpy(payload_ptr, payload, payload_len);
+    }
+
+    min_logger_write(msg_buffer, total_size);
 }
 const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT =
     min_logger_micro_binary_serializer;

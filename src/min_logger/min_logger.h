@@ -65,6 +65,9 @@ void min_logger_write_thread_names();
 MinLoggerSerializeCallBack* min_logger_serialize_format();
 int* min_logger_level();
 
+// Sends thread name of current thread as THREAD_NAME_MSG_ID string value for current thread if min_logger_write_thread_names() was called.
+void send_thread_name_if_needed();
+
 // Built in formats
 extern const MinLoggerSerializeCallBack MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
 extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT;

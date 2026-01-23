@@ -147,6 +147,22 @@ class MessageHandler:
         self.unknown_ids: set[int] = set()
         self.thread_names: dict[int, str] = {}
         self.perfetto_gen = PerfettoBuilder()
+        self.base_payload_sizes: dict[int, int] = {}
+
+    def get_base_payload_size(self, metric_id: int) -> int:
+        if metric_id in self.base_payload_sizes:
+            return self.base_payload_sizes[metric_id]
+
+        if metric_id not in self.log_metrics:
+            raise ValueError(f"Metric ID 0x{metric_id:08X} not found in metadata")
+
+        metric = self.log_metrics[metric_id]
+        if metric.value_type is None:
+            return 0
+
+        _, size = _c_type_to_python_data(None, metric.value_type, self.type_defs)
+        self.base_payload_sizes[metric_id] = size
+        return size
 
     def _sanitize_filename(self, name: str) -> str:
         # Keep only safe characters
@@ -243,7 +259,7 @@ class MessageHandler:
 
         if metric.name is not None and metric.value_type is not None:
             if metric.is_array:
-                _, size = _c_type_to_python_data(None, metric.value_type, self.type_defs)
+                size = self.get_base_payload_size(metric_id)
                 if len(value) % size != 0:
                     raise ValueError(
                         f"Payload size {len(value)} is not a multiple of element size {size} for metric ID 0x{metric_id:08X}"
@@ -323,9 +339,7 @@ CHUNK_SIZE = 32
 HEADER_SIZE = MSG_HEADER.size + len(SYNC_BYTES)
 
 
-def read_binary(
-    fd: BinaryIO, meta: dict[int, MetricEntryData], perfetto_path: Optional[Path] = None
-):
+def read_binary(fd: BinaryIO, meta, perfetto_path: Optional[Path] = None):
     handler = MessageHandler(meta, perfetto_path=perfetto_path, csv_dir=Path("/tmp/min_logger_csv"))
     buffer = b""
     while True:
@@ -367,25 +381,21 @@ def _timescale_to_dt(time_scale, time_value) -> float:
     return time_value * (1e-9 * (1000**time_scale))
 
 
-def read_micro_binary(
-    fd: BinaryIO, meta: dict[int, MetricEntryData], perfetto_path: Optional[Path] = None
-):
+def read_micro_binary(fd: BinaryIO, meta, perfetto_path: Optional[Path] = None):
     handler = MessageHandler(meta, perfetto_path=perfetto_path)
-    truncated_ids = {v & 0xFFFF: v for v in meta.keys()}
+    truncated_ids = {v & 0xFFFF: v for v in handler.log_metrics.keys()}
     truncated_ids[THREAD_NAME_MSG_ID & 0xFFFF] = THREAD_NAME_MSG_ID
     timestamp = 0
-    """
-    Searches a binary file byte by byte for words that match the truncated_ids.
-    Then parses the remainder of the MicroMessage structure:
-        struct MicroMessage {
-            uint16_t truncated_id;
-            uint8_t thread_id : 4;
-            uint8_t time_scale : 2;
-            uint16_t time_value : 10;
-        };
-    Yields dicts with the parsed fields.
-    """
+    # Searches a binary file byte by byte for words that match the truncated_ids.
+    # Then parses the remainder of the MicroMessage structure:
+    #     struct MicroMessage {
+    #         uint16_t truncated_id;
+    #         uint8_t thread_id : 4;
+    #         uint8_t time_scale : 2;
+    #         uint16_t time_value : 10;
+    #     };
 
+    MIN_MSG_SIZE = 4
     BUFFER_SIZE = 4096
     buffer = b""
     while True:
@@ -393,17 +403,12 @@ def read_micro_binary(
         if not chunk:
             break
         buffer += chunk
-        # Minimum message size is 4 bytes
-        min_msg_size = 4
         i = 0
-        while i <= len(buffer) - min_msg_size:
+        while i <= len(buffer) - MIN_MSG_SIZE:
             truncated_id = int.from_bytes(buffer[i : i + 2], "little")
             if truncated_id not in truncated_ids:
                 i += 1
                 continue
-            # Check if we have enough bytes for the rest of the message
-            if i + 4 > len(buffer):
-                break  # Wait for more data
             bitfield = int.from_bytes(buffer[i + 2 : i + 4], "little")
 
             thread_id = (bitfield >> 0) & 0xF
@@ -413,10 +418,46 @@ def read_micro_binary(
             dt = _timescale_to_dt(time_scale, time_value)
             timestamp += dt
 
+            msg_size = MIN_MSG_SIZE
+            full_id = truncated_ids[truncated_id]
+            if full_id == THREAD_NAME_MSG_ID:
+                metric_entry = MetricEntryData(
+                    id=full_id,
+                    tags=[],
+                    name=None,
+                    msg=None,
+                    level=0,
+                    source_file=Path(),
+                    source_line=0,
+                    value_type="char",
+                    is_array=True,
+                    profiler_type=None,
+                )
+            else:
+                metric_entry = handler.log_metrics[full_id]
+            payload = bytes()
+            if metric_entry.value_type is not None:
+                payload_offset = i + MIN_MSG_SIZE
+                if metric_entry.is_array:
+                    msg_size += 1  # Initial payload length byte
+                    if len(buffer) < i + msg_size:
+                        break  # Wait for more data
+                    payload_len = buffer[i + MIN_MSG_SIZE]
+                    payload_offset += 1
+                else:
+                    payload_len = handler.get_base_payload_size(truncated_ids[truncated_id])
+
+                msg_size += payload_len
+
+                if len(buffer) < i + msg_size + 1:
+                    break  # Wait for more data
+
+                payload = buffer[payload_offset : payload_offset + payload_len]
+
             # You may want to reconstruct a timestamp from time_scale/time_value here
             # For now, just pass 0 as timestamp and truncated_id as metric_id
-            handler.process_msg(timestamp, truncated_ids[truncated_id], thread_id, b"")
-            i += 4
+            handler.process_msg(timestamp, truncated_ids[truncated_id], thread_id, payload)
+            i += msg_size
         # Keep any leftover bytes for next chunk
         buffer = buffer[i:]
     handler.finish()
