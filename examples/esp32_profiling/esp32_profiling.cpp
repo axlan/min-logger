@@ -20,7 +20,7 @@ void setup() { Serial.begin(115200); }
 
 void loop() {
 
-    *min_logger_serialize_format() = MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT;
+    min_logger_set_serialize_format(MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT);
 
     auto start_time = micros();
 

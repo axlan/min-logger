@@ -72,9 +72,11 @@ size_t min_logger_get_thread_name(char* thread_name, size_t max_len);
 // Thread safe function for requesting threads report their names.
 void min_logger_write_thread_names();
 
-// Defaults to MIN_LOGGER_DEFAULT_TEXT_SERIALIZED_FORMAT
-MinLoggerSerializeCallBack* min_logger_serialize_format();
-int* min_logger_level();
+// Defaults to MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT
+void min_logger_set_serialize_format(MinLoggerSerializeCallBack serialize_format);
+MinLoggerSerializeCallBack min_logger_get_serialize_format();
+void min_logger_set_level(int level);
+int min_logger_get_level();
 
 // Sends thread name of current thread as THREAD_NAME_MSG_ID string value for current thread if
 // min_logger_write_thread_names() was called.
@@ -90,24 +92,24 @@ extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMA
     // literal declared in place. IT CANNOT BE A VARIABLE. IT CANNOT BE A VARIABLE OR MACRO. name
     // should only contain characters valid for variable names. value, values,and num_values can be
     // variables, but cannot conntain commas.
-    #define MIN_LOGGER_LOG_ID(id, level, msg)                                \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) { \
-            (*min_logger_serialize_format())(id, NULL, 0, true);             \
+    #define MIN_LOGGER_LOG_ID(id, level, msg)                                   \
+        if (MIN_LOGGER_MIN_LEVEL >= level && min_logger_get_level() >= level) { \
+            (min_logger_get_serialize_format())(id, NULL, 0, true);             \
         }
 
-    #define MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)          \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {  \
-            PRIVATE_MIN_LOGGER_ASSERT_TYPE(value, type);                      \
-            (*min_logger_serialize_format())(id, &value, sizeof(type), true); \
+    #define MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)             \
+        if (MIN_LOGGER_MIN_LEVEL >= level && min_logger_get_level() >= level) {  \
+            PRIVATE_MIN_LOGGER_ASSERT_TYPE(value, type);                         \
+            (min_logger_get_serialize_format())(id, &value, sizeof(type), true); \
         }
 
     #define MIN_LOGGER_RECORD_AND_LOG_VALUE_ID(id, level, name, type, value, msg) \
         MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)
 
-    #define MIN_LOGGER_RECORD_VALUE_ARRAY_ID(id, level, name, type, values, num_values)     \
-        if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                \
-            PRIVATE_MIN_LOGGER_ASSERT_TYPE(*values, type);                                  \
-            (*min_logger_serialize_format())(id, values, sizeof(type) * num_values, false); \
+    #define MIN_LOGGER_RECORD_VALUE_ARRAY_ID(id, level, name, type, values, num_values)        \
+        if (MIN_LOGGER_MIN_LEVEL >= level && min_logger_get_level() >= level) {                \
+            PRIVATE_MIN_LOGGER_ASSERT_TYPE(*values, type);                                     \
+            (min_logger_get_serialize_format())(id, values, sizeof(type) * num_values, false); \
         }
 
     #define MIN_LOGGER_RECORD_AND_LOG_VALUE_ARRAY_ID(id, level, name, type, values, num_values, \
@@ -152,6 +154,19 @@ extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMA
     #endif
 
 #else
+
+inline void min_logger_write_thread_names() {}
+
+void min_logger_set_serialize_format(MinLoggerSerializeCallBack serialize_format) {}
+MinLoggerSerializeCallBack min_logger_get_serialize_format() { return nullptr; }
+void min_logger_set_level(int level) {}
+int min_logger_get_level() { return MIN_LOGGER_DEFAULT_LEVEL; }
+
+inline void send_thread_name_if_needed() {}
+
+    #define MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT nullptr
+    #define MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT nullptr
+
     #define MIN_LOGGER_LOG_ID(id, level, msg) \
         do {                                  \
         } while (0)

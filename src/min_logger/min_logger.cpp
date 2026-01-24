@@ -84,7 +84,7 @@ void send_thread_name_if_needed() {
         local_name_broadcast_count = name_broadcast_count;
         char name_buffer[PTHREAD_NAME_LEN] = {0};
         size_t name_len = min_logger_get_thread_name(name_buffer, PTHREAD_NAME_LEN);
-        (*min_logger_serialize_format())(THREAD_NAME_MSG_ID, name_buffer, name_len, false);
+        (min_logger_get_serialize_format())(THREAD_NAME_MSG_ID, name_buffer, name_len, false);
     }
 }
 
@@ -182,11 +182,19 @@ MinLoggerSerializeCallBack* min_logger_serialize_format() {
         MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
     return &serialize_format;
 }
+void min_logger_set_serialize_format(MinLoggerSerializeCallBack serialize_format) {
+    *min_logger_serialize_format() = serialize_format;
+}
+MinLoggerSerializeCallBack min_logger_get_serialize_format() {
+    return *min_logger_serialize_format();
+}
 
 int* min_logger_level() {
     static int level = MIN_LOGGER_DEFAULT_LEVEL;
     return &level;
 }
+void min_logger_set_level(int level) { *min_logger_level() = level; }
+int min_logger_get_level() { return *min_logger_level(); }
 
 }  // extern "C"
 

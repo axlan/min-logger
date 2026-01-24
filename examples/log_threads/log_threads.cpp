@@ -23,9 +23,9 @@ void task(string msg) {
 
 int main(const int argc, const char** argv) {
     if (argc > 1) {
-        *min_logger_serialize_format() = MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT;
+        min_logger_set_serialize_format(MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT);
     } else {
-        *min_logger_serialize_format() = MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
+        min_logger_set_serialize_format(MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT);
     }
 
     min_logger_write_thread_names();
