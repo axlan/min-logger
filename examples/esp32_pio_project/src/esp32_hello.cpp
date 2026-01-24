@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <min_logger.h>
+#include <min_logger/min_logger.h>
 
 extern "C" {
 
