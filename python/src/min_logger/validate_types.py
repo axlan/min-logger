@@ -45,6 +45,7 @@ def command(
         _, size = _c_type_to_python_data(None, value_type, type_defs_data)
 
         # Run gdb to get sizeof(int) from the firmware
+        output = ""
         try:
             result = subprocess.run(
                 [

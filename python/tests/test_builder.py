@@ -5,7 +5,7 @@ from binascii import crc32
 
 import pytest
 
-from min_logger.builder import get_metric_entries, MetricEntryData, MetricType
+from min_logger.builder import get_metric_entries, MetricEntryData
 
 
 def test_successful_parsing(caplog):

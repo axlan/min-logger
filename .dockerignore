@@ -1,0 +1,66 @@
+# VCS
+.git
+.gitignore
+
+# Dockerfiles and compose
+Dockerfile*
+docker-compose*.yml
+
+# Build artifacts
+build/
+dist/
+.pio/
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.exe
+*.out
+*.log
+cmake_install.cmake
+CMakeFiles/
+CMakeCache.txt
+Makefile
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+pip-wheel-metadata/
+venv/
+.venv/
+env/
+ENV/
+.env
+pyvenv.cfg
+.pytest_cache/
+.coverage
+htmlcov/
+.tox
+.mypy_cache
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (if present)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Other
+*.tar
+*.gz
+*.zip
+*.sqlite
+*.db
+.ipynb_checkpoints/

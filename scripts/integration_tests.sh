@@ -4,8 +4,8 @@ set -e
 
 rm -rf build
 
-cmake -S . -B build -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build
+cmake -S . -B build -G Ninja -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo 
+cmake --build build -j"$(nproc)"
 
 uv --project python run min-logger-validate-types build/examples/custom_type/custom_type --type_defs examples/custom_type/custom_type_type_defs.json
 

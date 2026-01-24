@@ -1,35 +1,10 @@
 #pragma once
 
-#include <inttypes.h>  // Required for PRIu64
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 
-typedef uint32_t MinLoggerCRC;
-
-#ifdef __cplusplus
-    #include <type_traits>
-
-    #include "min_logger_crc.h"
-
-    #define __MIN_LOGGER_LOG_MSG_GEN_ID(str) \
-        static constexpr MinLoggerCRC __min_log_id = MIN_LOGGER_CPP_CRC32(str);
-
-    #define __MIN_LOGGER_ASSERT_TYPE(x, expected_type)                                   \
-        static_assert(std::is_same<std::decay<decltype(x)>::type, expected_type>::value, \
-                      "Type mismatch: expected " #expected_type)
-
-extern "C" {
-#else  // is compiling a C not C++
-    #define __MIN_LOGGER_ASSERT_TYPE(x, expected_type)              \
-        _Static_assert(_Generic((x), expected_type: 1, default: 0), \
-                       "Type mismatch: expected " #expected_type)
-#endif
-
-typedef void (*MinLoggerSerializeCallBack)(MinLoggerCRC msg_id, const void* payload,
-                                           size_t payload_len, bool is_fixed_size);
-
+//////////////////////////////// Configuration Macros ////////////////////////////////
 #define MIN_LOGGER_DEBUG 10
 #define MIN_LOGGER_INFO 20
 #define MIN_LOGGER_WARN 30
@@ -48,11 +23,47 @@ typedef void (*MinLoggerSerializeCallBack)(MinLoggerCRC msg_id, const void* payl
     #define MIN_LOGGER_DEFAULT_LEVEL MIN_LOGGER_WARN
 #endif
 
+//////////////////////////////// Type Definitions ////////////////////////////////
+
+typedef uint32_t MinLoggerCRC;
+
+// Callback type for serializing log messages.
+typedef void (*MinLoggerSerializeCallBack)(MinLoggerCRC msg_id, const void* payload,
+                                           size_t payload_len, bool is_fixed_size);
+
 #if MIN_LOGGER_ENABLED
 
-    #define __MIN_LOGGER_S1(x) #x
-    #define __MIN_LOGGER_S2(x) __MIN_LOGGER_S1(x)
-    #define __MIN_LOGGER_LOC __FILE__ ":" __MIN_LOGGER_S2(__LINE__)
+////////////////////////////// Helper Macros ////////////////////////////////
+
+    #ifdef __cplusplus
+        #include <type_traits>
+
+        #include "min_logger_crc.h"
+
+        // Generates a unique ID for the log message based on its location in the source code.
+        // This macro can be independantly computed by external tools to map ID to log context.
+        // This is all done at compile time to avoid runtime overhead and storage.
+        #define PRIVATE_MIN_LOGGER_LOG_MSG_GEN_ID(str) \
+            static constexpr MinLoggerCRC min_log_id = min_logger_crc::MIN_LOGGER_CPP_CRC32(str);
+
+        // Used to add psuedo type checking to macros.
+        #define PRIVATE_MIN_LOGGER_ASSERT_TYPE(x, expected_type)                             \
+            static_assert(std::is_same<std::decay<decltype(x)>::type, expected_type>::value, \
+                          "Type mismatch: expected " #expected_type)
+
+extern "C" {
+    #else  // is compiling a C not C++
+        // Used to add psuedo type checking to macros.
+        #define PRIVATE_MIN_LOGGER_ASSERT_TYPE(x, expected_type)        \
+            _Static_assert(_Generic((x), expected_type: 1, default: 0), \
+                           "Type mismatch: expected " #expected_type)
+    #endif
+
+    #define MIN_LOGGER_S1(x) #x
+    #define MIN_LOGGER_S2(x) MIN_LOGGER_S1(x)
+    #define MIN_LOGGER_LOC __FILE__ ":" MIN_LOGGER_S2(__LINE__)
+
+////////////////////////////// Public API ////////////////////////////////
 
 // Weak functions to override with platform specific implementations
 uint64_t min_logger_get_time_nanoseconds();
@@ -65,17 +76,20 @@ void min_logger_write_thread_names();
 MinLoggerSerializeCallBack* min_logger_serialize_format();
 int* min_logger_level();
 
-// Sends thread name of current thread as THREAD_NAME_MSG_ID string value for current thread if min_logger_write_thread_names() was called.
+// Sends thread name of current thread as THREAD_NAME_MSG_ID string value for current thread if
+// min_logger_write_thread_names() was called.
 void send_thread_name_if_needed();
 
-// Built in formats
+// Built in serialization functions
 extern const MinLoggerSerializeCallBack MIN_LOGGER_DEFAULT_BINARY_SERIALIZED_FORMAT;
 extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT;
 
-    // This macro is extracted by python/src/min_logger/builder.py which handles it differently from
-    // the actual C preprocessor. The level must either be an integer, or one of priority level
+    // These macros are extracted by python/src/min_logger/builder.py which handles it differently
+    // from the actual C preprocessor. The level must either be an integer, or one of priority level
     // names (INFO, WARN, etc.). IT CANNOT BE A VARIABLE OR MACRO. The `msg` must be a string
-    // literal declared in place. IT CANNOT BE A VARIABLE. IT CANNOT BE A VARIABLE OR MACRO.
+    // literal declared in place. IT CANNOT BE A VARIABLE. IT CANNOT BE A VARIABLE OR MACRO. name
+    // should only contain characters valid for variable names. value, values,and num_values can be
+    // variables, but cannot conntain commas.
     #define MIN_LOGGER_LOG_ID(id, level, msg)                                \
         if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) { \
             (*min_logger_serialize_format())(id, NULL, 0, true);             \
@@ -83,7 +97,7 @@ extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMA
 
     #define MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value)          \
         if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {  \
-            __MIN_LOGGER_ASSERT_TYPE(value, type);                            \
+            PRIVATE_MIN_LOGGER_ASSERT_TYPE(value, type);                      \
             (*min_logger_serialize_format())(id, &value, sizeof(type), true); \
         }
 
@@ -92,7 +106,7 @@ extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMA
 
     #define MIN_LOGGER_RECORD_VALUE_ARRAY_ID(id, level, name, type, values, num_values)     \
         if (MIN_LOGGER_MIN_LEVEL >= level && *min_logger_level() >= level) {                \
-            __MIN_LOGGER_ASSERT_TYPE(*values, type);                                        \
+            PRIVATE_MIN_LOGGER_ASSERT_TYPE(*values, type);                                  \
             (*min_logger_serialize_format())(id, values, sizeof(type) * num_values, false); \
         }
 
@@ -105,26 +119,26 @@ extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMA
     #define MIN_LOGGER_EXIT_ID(level, name) MIN_LOGGER_LOG_ID(id, level, name "_exit")
 
     #ifdef __cplusplus
-        #define MIN_LOGGER_LOG(level, msg)                     \
-            {                                                  \
-                __MIN_LOGGER_LOG_MSG_GEN_ID(__MIN_LOGGER_LOC); \
-                MIN_LOGGER_LOG_ID(__min_log_id, level, msg);   \
+        #define MIN_LOGGER_LOG(level, msg)                         \
+            {                                                      \
+                PRIVATE_MIN_LOGGER_LOG_MSG_GEN_ID(MIN_LOGGER_LOC); \
+                MIN_LOGGER_LOG_ID(min_log_id, level, msg);         \
             }
 
-        #define MIN_LOGGER_RECORD_VALUE(level, name, type, value)                   \
-            {                                                                       \
-                __MIN_LOGGER_LOG_MSG_GEN_ID(__MIN_LOGGER_LOC);                      \
-                MIN_LOGGER_RECORD_VALUE_ID(__min_log_id, level, name, type, value); \
+        #define MIN_LOGGER_RECORD_VALUE(level, name, type, value)                 \
+            {                                                                     \
+                PRIVATE_MIN_LOGGER_LOG_MSG_GEN_ID(MIN_LOGGER_LOC);                \
+                MIN_LOGGER_RECORD_VALUE_ID(min_log_id, level, name, type, value); \
             }
 
         #define MIN_LOGGER_RECORD_AND_LOG_VALUE(level, name, type, value, msg) \
             MIN_LOGGER_RECORD_VALUE(level, name, type, value)
 
-        #define MIN_LOGGER_RECORD_VALUE_ARRAY(level, name, type, values, num_values)      \
-            {                                                                             \
-                __MIN_LOGGER_LOG_MSG_GEN_ID(__MIN_LOGGER_LOC);                            \
-                MIN_LOGGER_RECORD_VALUE_ARRAY_ID(__min_log_id, level, name, type, values, \
-                                                 num_values);                             \
+        #define MIN_LOGGER_RECORD_VALUE_ARRAY(level, name, type, values, num_values)    \
+            {                                                                           \
+                PRIVATE_MIN_LOGGER_LOG_MSG_GEN_ID(MIN_LOGGER_LOC);                      \
+                MIN_LOGGER_RECORD_VALUE_ARRAY_ID(min_log_id, level, name, type, values, \
+                                                 num_values);                           \
             }
 
         #define MIN_LOGGER_RECORD_AND_LOG_VALUE_ARRAY(level, name, type, values, num_values, msg) \
@@ -133,12 +147,67 @@ extern const MinLoggerSerializeCallBack MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMA
         #define MIN_LOGGER_ENTER(level, name) MIN_LOGGER_LOG(level, name "_enter")
 
         #define MIN_LOGGER_EXIT(level, name) MIN_LOGGER_LOG(level, name "_exit")
+
+}  // extern "C"
     #endif
 
 #else
-    #error "NEED TO IMPLEMENT!"
-#endif
+    #define MIN_LOGGER_LOG_ID(id, level, msg) \
+        do {                                  \
+        } while (0)
 
-#ifdef __cplusplus
-}  // extern "C"
+    #define MIN_LOGGER_RECORD_VALUE_ID(id, level, name, type, value) \
+        do {                                                         \
+        } while (0)
+
+    #define MIN_LOGGER_RECORD_AND_LOG_VALUE_ID(id, level, name, type, value, msg) \
+        do {                                                                      \
+        } while (0)
+
+    #define MIN_LOGGER_RECORD_VALUE_ARRAY_ID(id, level, name, type, values, num_values) \
+        do {                                                                            \
+        } while (0)
+
+    #define MIN_LOGGER_RECORD_AND_LOG_VALUE_ARRAY_ID(id, level, name, type, values, num_values, \
+                                                     msg)                                       \
+        do {                                                                                    \
+        } while (0)
+
+    #define MIN_LOGGER_ENTER_ID(level, name, id) \
+        do {                                     \
+        } while (0)
+
+    #define MIN_LOGGER_EXIT_ID(level, name) \
+        do {                                \
+        } while (0)
+
+    #ifdef __cplusplus
+        #define MIN_LOGGER_LOG(level, msg) \
+            do {                           \
+            } while (0)
+
+        #define MIN_LOGGER_RECORD_VALUE(level, name, type, value) \
+            do {                                                  \
+            } while (0)
+
+        #define MIN_LOGGER_RECORD_AND_LOG_VALUE(level, name, type, value, msg) \
+            do {                                                               \
+            } while (0)
+
+        #define MIN_LOGGER_RECORD_VALUE_ARRAY(level, name, type, values, num_values) \
+            do {                                                                     \
+            } while (0)
+
+        #define MIN_LOGGER_RECORD_AND_LOG_VALUE_ARRAY(level, name, type, values, num_values) \
+            do {                                                                             \
+            } while (0)
+
+        #define MIN_LOGGER_ENTER(level, name) \
+            do {                              \
+            } while (0)
+
+        #define MIN_LOGGER_EXIT(level, name) \
+            do {                             \
+            } while (0)
+    #endif
 #endif

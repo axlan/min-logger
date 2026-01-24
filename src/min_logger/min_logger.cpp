@@ -146,13 +146,12 @@ void min_logger_micro_binary_serializer(MinLoggerCRC msg_id, const void* payload
     uint64_t local_last_timestamp_ns = last_timestamp_ns.exchange(current_timestamp_ns);
     uint64_t elapsed_ns = 0;
     // Handle initial case, and race condition between computing current time and doing exchange.
+    // There still may be an issue here where the delta can be sent out of order.
     if (local_last_timestamp_ns != 0 && current_timestamp_ns > local_last_timestamp_ns) {
         elapsed_ns = current_timestamp_ns - local_last_timestamp_ns;
     }
 
     auto delta = convertNanoseconds(elapsed_ns);
-
-
 
     static constexpr size_t _MAX_MSG_SIZE = 256;
     static constexpr size_t _MAX_PAYLOAD_SIZE = _MAX_MSG_SIZE - sizeof(BinaryMsgHeader);
