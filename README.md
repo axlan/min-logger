@@ -1,10 +1,49 @@
-# min-logger: Minimal, Efficient Logging for Embedded Systems
-
 A lightweight, compile-time optimized logging library for embedded systems and resource-constrained environments. Min-logger provides rich logging capabilities with minimal runtime overhead, storage, and bandwidth through use of compile-time ID generation and external metadata mapping.
 
-## Features
+- [Features](#features)
+  - [Core Library (`min_logger.h`)](#core-library-min_loggerh)
+  - [Serialization \& Transport](#serialization--transport)
+  - [Build-Time Tools (`builder_main.py`)](#build-time-tools-builder_mainpy)
+  - [Runtime Tools (`parser_main.py`)](#runtime-tools-parser_mainpy)
+- [Quick Start](#quick-start)
+  - [Basic Usage (C++)](#basic-usage-c)
+  - [Basic Usage (C with Explicit IDs)](#basic-usage-c-with-explicit-ids)
+  - [Type Definition JSON Format](#type-definition-json-format)
+  - [Including with CMake](#including-with-cmake)
+  - [Parsing Logs](#parsing-logs)
+- [Configuration](#configuration)
+  - [Compile-Time Configuration Macros](#compile-time-configuration-macros)
+  - [Log Levels](#log-levels)
+  - [Runtime Configuration](#runtime-configuration)
+- [Platform Customization](#platform-customization)
+  - [Custom Transport](#custom-transport)
+  - [Custom Time Source](#custom-time-source)
+  - [Custom Thread Identification](#custom-thread-identification)
+- [Examples](#examples)
+  - [Simple Hello World](#simple-hello-world)
+  - [Multi-Threaded Profiling](#multi-threaded-profiling)
+  - [Custom Types](#custom-types)
+  - [Embedded System Integration](#embedded-system-integration)
+- [Macro Reference](#macro-reference)
+  - [Message Logging](#message-logging)
+  - [Value Logging](#value-logging)
+  - [Profiling](#profiling)
+- [Architecture](#architecture)
+  - [How It Works](#how-it-works)
+  - [Built-in Serializer Payload Structures](#built-in-serializer-payload-structures)
+- [Performance Characteristics](#performance-characteristics)
+- [Testing \& Validation](#testing--validation)
+- [Building in Linux](#building-in-linux)
+  - [Requirements](#requirements)
+  - [Build Commands](#build-commands)
+- [PlatformIO](#platformio)
+  - [Building the PlatformIO Examples](#building-the-platformio-examples)
+- [Future Enhancements](#future-enhancements)
 
-### Core Library ([`min_logger.h`](src/min_logger/min_logger.h))
+
+# Features
+
+## Core Library ([`min_logger.h`](src/min_logger/min_logger.h))
 
 - **Zero-Overhead Disabled Logging** - When `MIN_LOGGER_ENABLED=0`, all macros become no-ops with absolutely no runtime cost
 - **Dual-Stage Log Level Filtering**
@@ -17,7 +56,7 @@ A lightweight, compile-time optimized logging library for embedded systems and r
 - **Execution Flow Tracing** - `MIN_LOGGER_ENTER()` and `MIN_LOGGER_EXIT()` macros for profiling and execution path analysis
 - **Message Substitution** - Use `${VALUE_NAME}` in log messages to reference previously logged values
 
-### Serialization & Transport
+## Serialization & Transport
 
 - **Pluggable Serialization Format** - Custom format support via [`MinLoggerSerializeCallBack`](src/min_logger/min_logger.h)
 - **Two Built-in Binary Formats**
@@ -29,7 +68,7 @@ A lightweight, compile-time optimized logging library for embedded systems and r
   - [`min_logger_write()`](src/min_logger/min_logger.h) - Transport mechanism (defaults to stdout)
 - **Thread Name Tracking** - [`min_logger_write_thread_names()`](src/min_logger/min_logger.h) triggers automatic thread name broadcast to accociate thread/task names with thread IDs recorded in built in serializations.
 
-### Build-Time Tools ([`builder_main.py`](python/src/min_logger/builder_main.py))
+## Build-Time Tools ([`builder_main.py`](python/src/min_logger/builder_main.py))
 
 The builder tool scans source code for MIN_LOGGER macros and generates JSON metadata mapping compile-time IDs to source locations.
 
@@ -75,7 +114,7 @@ uv --project python run min-logger-builder <source_dir> \
 }
 ```
 
-### Runtime Tools ([`parser_main.py`](python/src/min_logger/parser_main.py))
+## Runtime Tools ([`parser_main.py`](python/src/min_logger/parser_main.py))
 
 Converts binary log output back to human-readable format with full context restoration.
 
@@ -108,9 +147,9 @@ uv --project python run min-logger-parser <metadata.json> \
 15328834.815283 INFO  examples/custom_type/custom_type.cpp:27 custom_type] An integer value: 100
 ```
 
-## Quick Start
+# Quick Start
 
-### Basic Usage (C++)
+## Basic Usage (C++)
 
 ```cpp
 #include <min_logger/min_logger.h>
@@ -130,7 +169,7 @@ int main() {
 }
 ```
 
-### Basic Usage (C with Explicit IDs)
+## Basic Usage (C with Explicit IDs)
 
 ```c
 #include <min_logger/min_logger.h>
@@ -143,7 +182,7 @@ int main() {
 }
 ```
 
-### Type Definition JSON Format
+## Type Definition JSON Format
 
 This file is a dictionary of custom or ambiguous types to Python [struct format](https://docs.python.org/3/library/struct.html#format-characters) string values. These can reverence other definitions in the file or C primitives. struct formats must be a number of repetitions and a single value character. Custom types can also start with a number of repetitions for fixed size arrays.
 
@@ -168,7 +207,7 @@ Example:
 }
 ```
 
-### Building with CMake
+## Including with CMake
 
 Include the build helper from [`cmake/BuildLogger.cmake`](cmake/BuildLogger.cmake):
 
@@ -178,11 +217,14 @@ target_link_libraries(my_app PUBLIC min_logger)
 
 # Automatically generate metadata JSON from MIN_LOGGER macros
 build_min_logger(${CMAKE_CURRENT_SOURCE_DIR} my_app)
+
+# To include a custom type definitions JSON, you can pass an argument for its path
+# build_min_logger(${CMAKE_CURRENT_SOURCE_DIR} my_app ${CMAKE_CURRENT_SOURCE_DIR}/my_app_type_defs.json)
 ```
 
 This generates `my_app_min_logger.json` at build time containing all log metadata.
 
-### Parsing Logs
+## Parsing Logs
 
 ```bash
 # Run your application and capture binary output
@@ -206,9 +248,9 @@ uv --project python run min-logger-parser build/examples/hello_cpp/hello_cpp_min
   --csv_dir=metrics/
 ```
 
-## Configuration
+# Configuration
 
-### Compile-Time Configuration Macros
+## Compile-Time Configuration Macros
 
 Define these before including `min_logger.h` to customize behavior:
 
@@ -224,7 +266,7 @@ Define these before including `min_logger.h` to customize behavior:
 #define MIN_LOGGER_DEFAULT_LEVEL MIN_LOGGER_WARN
 ```
 
-### Log Levels
+## Log Levels
 
 ```c
 #define MIN_LOGGER_DEBUG 10     // Detailed diagnostic information
@@ -234,7 +276,7 @@ Define these before including `min_logger.h` to customize behavior:
 #define MIN_LOGGER_CRITICAL 50  // System failures
 ```
 
-### Runtime Configuration
+## Runtime Configuration
 
 ```c
 // Set the runtime log level (works with MIN_LOGGER_MIN_LEVEL)
@@ -244,11 +286,11 @@ min_logger_set_level(MIN_LOGGER_DEBUG);
 min_logger_set_serialize_format(MY_CUSTOM_FORMAT);
 ```
 
-## Platform Customization
+# Platform Customization
 
 Override weakly-linked platform hooks to adapt to your system:
 
-### Custom Transport
+## Custom Transport
 
 ```cpp
 extern "C" {
@@ -260,7 +302,7 @@ extern "C" {
 }
 ```
 
-### Custom Time Source
+## Custom Time Source
 
 ```cpp
 extern "C" {
@@ -271,7 +313,7 @@ extern "C" {
 }
 ```
 
-### Custom Thread Identification
+## Custom Thread Identification
 
 ```cpp
 extern "C" {
@@ -284,14 +326,14 @@ extern "C" {
 }
 ```
 
-## Examples
+# Examples
 
-### Simple Hello World
+## Simple Hello World
 
 - **C Version**: [`examples/hello_c/hello.c`](examples/hello_c/hello.c) - Basic C logging with explicit IDs
 - **C++ Version**: [`examples/hello_cpp/hello.cpp`](examples/hello_cpp/hello.cpp) - Basic C++ with auto-generated IDs
 
-### Multi-Threaded Profiling
+## Multi-Threaded Profiling
 
 [`examples/log_threads/log_threads.cpp`](examples/log_threads/log_threads.cpp) demonstrates:
 - Thread creation and naming
@@ -302,7 +344,7 @@ extern "C" {
 
 Metadata: [`build/examples/log_threads/log_threads_min_logger.json`](build/examples/log_threads/log_threads_min_logger.json)
 
-### Custom Types
+## Custom Types
 
 [`examples/custom_type/custom_type.cpp`](examples/custom_type/custom_type.cpp) shows:
 - Logging custom struct types
@@ -312,7 +354,7 @@ Metadata: [`build/examples/log_threads/log_threads_min_logger.json`](build/examp
 
 Type Definitions: [`examples/custom_type/custom_type_type_defs.json`](examples/custom_type/custom_type_type_defs.json)
 
-### Embedded System Integration
+## Embedded System Integration
 
 [`examples/esp32_pio/esp32_hello.cpp`](examples/esp32_pio/esp32_hello.cpp) demonstrates:
 - Arduino/ESP32 platform integration
@@ -320,9 +362,9 @@ Type Definitions: [`examples/custom_type/custom_type_type_defs.json`](examples/c
 - Time source customization using `micros()`
 - PlatformIO build integration via `pio_scripts/generate_logger.py`
 
-## Macro Reference
+# Macro Reference
 
-### Message Logging
+## Message Logging
 
 ```c
 // C++ only - auto-generates ID from source location
@@ -332,7 +374,7 @@ MIN_LOGGER_LOG(level, "message text");
 MIN_LOGGER_LOG_ID(0x12345678, level, "message text");
 ```
 
-### Value Logging
+## Value Logging
 
 ```c
 // Log a fixed-size value
@@ -348,7 +390,7 @@ int data[10] = {1, 2, 3, ...};
 MIN_LOGGER_RECORD_VALUE_ARRAY(level, "sensor_data", int, data, 10);
 ```
 
-### Profiling
+## Profiling
 
 ```c
 // Mark function/section entry
@@ -360,9 +402,13 @@ MIN_LOGGER_ENTER(MIN_LOGGER_DEBUG, my_function);
 MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, my_function);
 ```
 
-## Architecture
+It is fine for multiple sections to be active at once, and sections on different threads are tracked seperately.
 
-### How It Works
+![perfetto example](docs/verbose_profiling.png)
+
+# Architecture
+
+## How It Works
 
 1. **Compile Time** ([`builder_main.py`](python/src/min_logger/builder_main.py)):
    - Scan source files for MIN_LOGGER macros
@@ -383,7 +429,7 @@ MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, my_function);
    - Substitute values into message templates
    - Export to text, CSV, or Perfetto trace format
 
-### Payload Structure
+## Built-in Serializer Payload Structures
 
 **Default Binary Format:**
 ```
@@ -395,7 +441,7 @@ MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, my_function);
 [truncated_id(16b)][thread_id(4b)][time_scale(2b)][time_value(10b)][value_data...]
 ```
 
-## Performance Characteristics
+# Performance Characteristics
 
 - **Disabled** (`MIN_LOGGER_ENABLED=0`): Zero overhead - all macros compile to nothing
 - **Enabled, Level Below Threshold**: Single integer comparison (compile-time + runtime)
@@ -403,7 +449,7 @@ MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, my_function);
 - **Memory**: Metadata in JSON (separate from binary), no message strings in firmware
 - **Bandwidth**: ~12-16 bytes per message + value data (default format), ~4+ bytes (micro format)
 
-## Testing & Validation
+# Testing & Validation
 
 Run the integration test suite:
 
@@ -426,16 +472,16 @@ uv --project python run min-logger-validate-types \
   --type_defs examples/custom_type/custom_type_type_defs.json
 ```
 
-## Building
+# Building in Linux
 
-### Requirements
+## Requirements
 
 - CMake 3.12+
 - C++11 compatible compiler
 - Python 3.12+ (for build tools and parsing)
 - `uv` package manager (for Python tools)
 
-### Build Commands
+## Build Commands
 
 ```bash
 # Configure
@@ -446,6 +492,14 @@ cmake --build build
 ```
 
 Alternatively, see [Dockerfile](Dockerfile) for a Docker build example.
+
+# PlatformIO
+
+## Building the PlatformIO Examples
+
+The [platformio.ini](platformio.ini) file is set up to compile examples/esp32_pio. It uses the extra script to call the Python min-logger-builder tool.
+
+An example of using min-logger as a library in a PlatformIO project can be found in [examples/esp32_pio_project](examples/esp32_pio_project). That example includes this repo as a dependancy, and is a template for using min-logger in another repo. This project can be built by opening this directory as the root of a PlatormIO project and running the default build.
 
 # Future Enhancements
 * Add way to validate type sizes. Could use objdump of symbols, or GDB? GDB with seperated debug symbols? gdb-multiarch seems to work even for ESP32 (`/usr/bin/gdb-multiarch .pio/build/esp32dev/firmware.elf --batch -ex="output sizeof(int)"`).
