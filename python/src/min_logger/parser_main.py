@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 CLI interface for parsing min-logger logs.
+
+Can be extended to support custom log formats.
 """
 
 import json
@@ -31,12 +33,16 @@ def command(
     log_format: str = None,  # pyright: ignore[reportArgumentType]
     log_file: Optional[Path_fr] = None,  # pyright: ignore[reportInvalidTypeForm]
     perfetto_out: Optional[Path_fc] = None,  # pyright: ignore[reportInvalidTypeForm]
+    csv_dir: Optional[Path_dr] = None,  # pyright: ignore[reportInvalidTypeForm]
 ):  # pylint: disable=dangerous-default-value
-    """Generate MIN_LOGGER header and/or metadata data files from source files with MIN_LOGGER macros.
+    """Parse logs and output log message and optional Perfetto trace or CSV files.
 
     Args:
         meta_data: Meta data json file with log definitions.
-
+        log_format: The format of the log file to parse.
+        log_file: The log file to parse. If not provided, stdin is used.
+        perfetto_out: If provided, output a Perfetto trace file with the parsed logs.
+        csv_dir: If provided, write parsed values to CSV files in this directory.
     """
 
     if log_format is None:
@@ -53,7 +59,7 @@ def command(
     else:
         log_fd = open(log_file, "rb")
 
-    PARSERS[log_format.upper()](log_fd, meta_data, perfetto_out)  # type: ignore
+    PARSERS[log_format.upper()](log_fd, meta_data, perfetto_out, csv_dir)  # type: ignore
 
 
 def main():

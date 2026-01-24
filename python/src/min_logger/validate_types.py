@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 """
-CLI interface for building min-logger metadata and header files.
+CLI interface for validating type_def JSON with C implementation.
 """
 
 import json
 import logging
 import subprocess
-from pathlib import Path
 import sys
-from typing import Optional
 
 from jsonargparse import auto_cli
-from jsonargparse.typing import Path_fc, Path_fr, path_type
+from jsonargparse.typing import Path_fr
 
-from min_logger.builder import get_file_matches, get_metric_entries, json_dump_helper
-from min_logger.parser import _c_type_to_python_data, SUBSTITUTE_PATTERN
-
-Path_dr = path_type("dw", docstring="path to a directory that exists and is writeable")
+from min_logger.parser import _c_type_to_python_data
 
 _logger = logging.getLogger("min_logger.builder_main")
 
@@ -26,14 +21,12 @@ def command(
     type_defs: Path_fr = None,  # pyright: ignore[reportInvalidTypeForm]
     gdb_bin: str = "gdb",
 ):  # pylint: disable=dangerous-default-value
-    """Generate MIN_LOGGER header and/or metadata data files from source files with MIN_LOGGER macros.
+    """Compare type sizes from type definitions against sizes obtained from binary via gdb.
 
     Args:
-        src_paths: Directories to scan for source files with MIN_LOGGER macros.
-        json_output: File to loghing context data to.
-        extensions: The extensions for source files with MIN_LOGGER macros.
-        recursive: Search src_paths recursively.
-        type_defs: A map of C types to their python serialization
+        bin_file: The binary with log macros to check types against. Must be compiled with debug symbols.
+        type_defs: The map of C types to their python serialization
+        gdb_bin: Path to the gdb binary to debug the binary
     """
 
     if type_defs is None:

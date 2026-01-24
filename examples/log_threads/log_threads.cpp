@@ -14,6 +14,8 @@ void task(string msg) {
 
     for (uint64_t i = 0; i < 5; i++) {
         MIN_LOGGER_ENTER(MIN_LOGGER_DEBUG, "TASK_LOOP");
+        // Example parsed log message:
+        // 15328838.067240 INFO  examples/log_threads/log_threads.cpp:19 task2] task: 3
         MIN_LOGGER_RECORD_AND_LOG_VALUE(MIN_LOGGER_INFO, "LOOP_COUNT", uint64_t, i,
                                         "task: ${LOOP_COUNT}");
         MIN_LOGGER_EXIT(MIN_LOGGER_DEBUG, "TASK_LOOP");

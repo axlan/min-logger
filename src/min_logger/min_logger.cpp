@@ -69,7 +69,7 @@ size_t __attribute__((weak)) min_logger_get_thread_name(char* thread_name, size_
     return 0;
 }
 
-uint64_t __attribute__((weak)) get_time_nanoseconds() {
+uint64_t __attribute__((weak)) min_logger_get_time_nanoseconds() {
     auto time_since_epoch = std::chrono::steady_clock::now().time_since_epoch();
     return std::chrono::duration_cast<std::chrono::nanoseconds>(time_since_epoch).count();
 }
@@ -112,7 +112,7 @@ void min_logger_default_binary_serializer(MinLoggerCRC msg_id, const void* paylo
     header_ptr->sync = BinaryMsgHeader::SYNC;
     header_ptr->msg_id = msg_id;
     header_ptr->payload_len = payload_len;
-    header_ptr->timestamp = get_time_nanoseconds();
+    header_ptr->timestamp = min_logger_get_time_nanoseconds();
     header_ptr->thread_id = get_thread_idx();
     memcpy(msg_buffer + sizeof(BinaryMsgHeader), payload, payload_len);
     min_logger_write(msg_buffer, sizeof(BinaryMsgHeader) + payload_len);
@@ -142,11 +142,15 @@ void min_logger_micro_binary_serializer(MinLoggerCRC msg_id, const void* payload
     send_thread_name_if_needed();
     static std::atomic<uint64_t> last_timestamp_ns = {0};
 
-    uint64_t current_timestamp_ns = get_time_nanoseconds();
+    uint64_t current_timestamp_ns = min_logger_get_time_nanoseconds();
     uint64_t local_last_timestamp_ns = last_timestamp_ns.exchange(current_timestamp_ns);
     uint64_t elapsed_ns = 0;
     // Handle initial case, and race condition between computing current time and doing exchange.
-    // There still may be an issue here where the delta can be sent out of order.
+    // There still an issue here where the messages can end up being sent in a different order then
+    // their deltas were computed. The overall time progress will still be correct, but individual
+    // message deltas may be off. This could be fixed with a mutex, but that would add significant
+    // overhead to this low-level function and copmlicate portability. Since this should be rare in
+    // practice, we accept the potential inaccuracy for the sake of performance.
     if (local_last_timestamp_ns != 0 && current_timestamp_ns > local_last_timestamp_ns) {
         elapsed_ns = current_timestamp_ns - local_last_timestamp_ns;
     }

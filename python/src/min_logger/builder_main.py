@@ -28,14 +28,15 @@ def command(
     recursive: bool = True,
     type_defs: Path_fr = None,  # pyright: ignore[reportInvalidTypeForm]
 ):  # pylint: disable=dangerous-default-value
-    """Generate MIN_LOGGER header and/or metadata data files from source files with MIN_LOGGER macros.
+    """Generate min-logger metadata data files from source files with MIN_LOGGER macros.
 
     Args:
         src_paths: Directories to scan for source files with MIN_LOGGER macros.
         json_output: File to loghing context data to.
+        root_paths: Root paths to strip from source file paths in the output.
         extensions: The extensions for source files with MIN_LOGGER macros.
         recursive: Search src_paths recursively.
-        type_defs: A map of C types to their python serialization
+        type_defs: A JSON map of C types to their python serialization
     """
 
     if json_output is None:

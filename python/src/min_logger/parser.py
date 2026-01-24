@@ -339,8 +339,10 @@ CHUNK_SIZE = 32
 HEADER_SIZE = MSG_HEADER.size + len(SYNC_BYTES)
 
 
-def read_binary(fd: BinaryIO, meta, perfetto_path: Optional[Path] = None):
-    handler = MessageHandler(meta, perfetto_path=perfetto_path, csv_dir=Path("/tmp/min_logger_csv"))
+def read_binary(
+    fd: BinaryIO, meta, perfetto_path: Optional[Path] = None, csv_dir: Optional[Path] = None
+):
+    handler = MessageHandler(meta, perfetto_path=perfetto_path, csv_dir=csv_dir)
     buffer = b""
     while True:
         chunk = fd.read(CHUNK_SIZE)
@@ -381,8 +383,10 @@ def _timescale_to_dt(time_scale, time_value) -> float:
     return time_value * (1e-9 * (1000**time_scale))
 
 
-def read_micro_binary(fd: BinaryIO, meta, perfetto_path: Optional[Path] = None):
-    handler = MessageHandler(meta, perfetto_path=perfetto_path)
+def read_micro_binary(
+    fd: BinaryIO, meta, perfetto_path: Optional[Path] = None, csv_dir: Optional[Path] = None
+):
+    handler = MessageHandler(meta, perfetto_path=perfetto_path, csv_dir=csv_dir)
     truncated_ids = {v & 0xFFFF: v for v in handler.log_metrics.keys()}
     truncated_ids[THREAD_NAME_MSG_ID & 0xFFFF] = THREAD_NAME_MSG_ID
     timestamp = 0
