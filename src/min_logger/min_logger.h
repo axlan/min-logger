@@ -486,6 +486,9 @@ void send_thread_name_if_needed();
 
 #else
 // Disabled logging: all functions and macros are no-ops
+    #ifdef __cplusplus
+extern "C" {
+    #endif
 
 inline void min_logger_write_thread_names() {}
 
@@ -556,5 +559,11 @@ inline void send_thread_name_if_needed() {}
         #define MIN_LOGGER_EXIT(level, name) \
             do {                             \
             } while (0)
+}
     #endif
+#endif
+
+// Special platform implementations
+#ifdef MIN_LOGGER_BUFFERED_ESP32_PLATFORM
+    #include "min_logger_buffered_esp32.h"
 #endif
