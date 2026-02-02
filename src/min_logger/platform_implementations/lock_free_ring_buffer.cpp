@@ -93,6 +93,10 @@ LockFreeRingBufferReader::LockFreeRingBufferReader(const LockFreeRingBuffer* buf
                                                    const std::function<void()>& sleep_func)
     : buffer_(buffer), sleep_func_(sleep_func) {
     read_tail_ = GetWriteTotal();
+    // If buffer hasn't rolled over yet, start at beginning.
+    if (read_tail_ < buffer_->buffer_size_) {
+        read_tail_ = 0;
+    }
 }
 
 bool LockFreeRingBufferReader::PeekAvailable(LockFreeRingBufferReadResults* results) {
