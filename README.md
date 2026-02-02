@@ -19,6 +19,7 @@ A lightweight, compile-time optimized logging library for embedded systems and r
   - [Custom Transport](#custom-transport)
   - [Custom Time Source](#custom-time-source)
   - [Custom Thread Identification](#custom-thread-identification)
+  - [ESP32 Buffered Platform](#esp32-buffered-platform)
 - [Examples](#examples)
   - [Simple Hello World](#simple-hello-world)
   - [Multi-Threaded Profiling](#multi-threaded-profiling)
@@ -325,6 +326,45 @@ extern "C" {
     }
 }
 ```
+
+## ESP32 Buffered Platform ([`min_logger_buffered_esp32.h`](src/min_logger/min_logger_buffered_esp32.h))
+
+Provides lock-free ring buffer-based logging for ESP32 with support for UART and UDP output. Logging writes are non-blocking, with separate tasks handling output to avoid blocking the logger.
+
+**Configuration:**
+```c
+// Enable buffered ESP32 platform
+#define MIN_LOGGER_BUFFERED_ESP32_PLATFORM
+
+// Buffer size for the lock-free ring buffer (must be power of two)
+#define MIN_LOGGER_BUFFER_SIZE 256
+
+// Compile in UDP logging functionality (default: 1)
+#define MIN_LOGGER_ENABLE_UDP 1
+```
+
+**Initialization:**
+```cpp
+// Initialize UART output
+// Starts a min_logger_uart task
+// \param uart_num UART port number to use for logging
+min_logger_init_uart(unsigned uart_num);
+
+// Initialize UDP output (when MIN_LOGGER_ENABLE_UDP is enabled)
+// Starts a min_logger_udp task
+// Logs will only start being sent when the network is up. Logs from before are ignored.
+// \param packet_size Size of each UDP packet to send. Messages wait in buffer
+//                    until this size is reached. MIN_LOGGER_BUFFER_SIZE must
+//                    be integer multiple of packet_size.
+// \param poll_interval_ms Polling interval in milliseconds for the UDP task
+// \param logging_udp_ip Destination IP address for UDP packets
+// \param logging_udp_port Destination port for UDP packets
+min_logger_init_udp(size_t packet_size, unsigned poll_interval_ms, 
+                    const char* logging_udp_ip, uint16_t logging_udp_port);
+```
+
+**Global Buffer:**
+The global `min_logger_buffer[MIN_LOGGER_BUFFER_SIZE]` contains the lock-free ring buffer data and can be used for post-mortem analysis or core dump inspection.
 
 # Examples
 

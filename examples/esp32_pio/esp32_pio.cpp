@@ -35,9 +35,6 @@ void loop() {
 
 #else
 
-
-
-
 void loop() {
     static constexpr size_t NUM_WRITES = 256;
     auto start_time = micros();

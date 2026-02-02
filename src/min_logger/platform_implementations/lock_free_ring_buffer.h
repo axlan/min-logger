@@ -11,11 +11,11 @@ class LockFreeRingBufferReader;
 /*
  * A lock free ring buffer.
  *
- * A sperate LockFreeRingBufferReader class is used to track reader state without modifying the
- * underlying buffer.
+ * A separate LockFreeRingBufferReader class is used to track reader state
+ * without modifying the underlying buffer.
  *
  * Features:
- * 1. Supports abitrary sized writes
+ * 1. Supports arbitrary sized writes
  * 2. Supports multiple simultaneous writers
  * 3. Supports multiple simultaneous readers
  * 4. Reads are always aligned to the start of a write.
@@ -25,12 +25,24 @@ class LockFreeRingBufferReader;
  * 2. Writers cannot detect when the buffer is full (no backpressure)
  * 4. Once the buffer fills up it will currupt old data if it hasn't been read
  * 5. To support both Posix and FreeRTOS, external callbacks need to be provided
+ *
+ * The power of 2 limitation is solely to support 32bit rollovers. It could be
+ * removed with minimal changes for a system that supported 64bit atomic
+ * variables or if having a potential race condition every ~4GB isn't a concern.
  */
 class LockFreeRingBuffer {
    public:
+    // Constructs a lock-free ring buffer.
+    // \param buffer Pointer to the buffer memory (must be power of 2 size)
+    // \param buffer_size Size of the buffer in bytes (must be power of 2)
+    // \param data_callback Optional callback invoked when data is written
     LockFreeRingBuffer(
         void* buffer, uint32_t buffer_size, const std::function<void()>& data_callback = {});
 
+    // Writes data to the ring buffer in a lock-free manner.
+    // Multiple writers can call this simultaneously.
+    // \param data Pointer to the data to write
+    // \param data_len Length of data to write (must be less than buffer_size)
     void Write(const void* data, uint32_t data_len);
 
    private:
@@ -49,8 +61,18 @@ struct LockFreeRingBufferReadResults {
     const uint8_t* part2 = nullptr;
     size_t part2_size = 0;
 
+    // Copies available data to destination buffer, handling wrap-around.
+    // \param dest Destination buffer to copy data into
+    // \param max_size Maximum number of bytes to copy
+    // \return Number of bytes copied
     size_t Copy(void* dest, size_t max_size) const;
+
+    // Returns the total size of available data (part1_size + part2_size).
     size_t Size() const;
+
+    // Creates a new result object with data offset by the given amount.
+    // \param offset Byte offset into the available data
+    // \return New result with pointers advanced by offset, or empty result if offset > Size()
     LockFreeRingBufferReadResults AddOffset(size_t offset) const;
 };
 
@@ -85,6 +107,8 @@ class LockFreeRingBufferReader {
     // and returns false to signal data loss.
     bool GetNewBytesResetIfOverflow(uint64_t* new_bytes);
 
+    // Sets callback function to be invoked when buffer overflow is detected.
+    // \param overflow_func Callback with signature void(bytes_available, buffer_size)
     void SetOverflowFunc(const std::function<void(uint64_t, uint64_t)>& overflow_func);
 
    private:
