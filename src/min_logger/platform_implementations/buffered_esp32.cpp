@@ -57,14 +57,16 @@ static void min_logger_udp_client_task(void* pvParameters) {
     int sock = -1;
 
     while (1) {
-        // Check if a UDP packet's worth of data is ready to send.
-        uint64_t bytes_available;
-        if (!reader.GetNewBytesResetIfOverflow(&bytes_available)) {
+        if (!reader.PeekAvailable(&results)) {
             ESP_LOGE(TAG, "Fell behind");
             continue;
         }
+        // Check if a UDP packet's worth of data is ready to send.
+        if (results.Size() >= udp_message_size) {
+            // Since reads are always udp_message_size, and buffer is multiple
+            // of udp_message_size, should never need to tear read.
+            assert(results.part1_size >= udp_message_size);
 
-        if (bytes_available >= udp_message_size) {
             // Open Socket if needed.
             if (sock == -1) {
                 esp_netif_ip_info_t ip_info;
@@ -73,14 +75,6 @@ static void min_logger_udp_client_task(void* pvParameters) {
                     sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
                 }
             }
-
-            if (!reader.PeekAvailable(&results)) {
-                ESP_LOGE(TAG, "Fell behind");
-                continue;
-            }
-            // Since reads are always udp_message_size, and buffer is multiple
-            // of udp_message_size, should never need to tear read.
-            assert(results.part1_size >= udp_message_size);
 
             int err = 0;
             if (sock != -1) {
