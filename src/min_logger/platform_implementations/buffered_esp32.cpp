@@ -7,12 +7,14 @@
     #include <esp_netif.h>
     #include <esp_timer.h>
     #include <freertos/FreeRTOS.h>
-    #include <freertos/ringbuf.h>
+    #include <freertos/event_groups.h>
     #include <freertos/task.h>
     #if MIN_LOGGER_ENABLE_UDP
         #include <lwip/inet.h>
         #include <lwip/sockets.h>
     #endif
+
+    #include "lock_free_ring_buffer.h"
 
 static const char* TAG = "min-logger";
 
@@ -20,44 +22,12 @@ static const char* TAG = "min-logger";
 extern "C" {
     #endif
 
+static_assert((MIN_LOGGER_BUFFER_SIZE & (MIN_LOGGER_BUFFER_SIZE - 1)) == 0,
+              "MIN_LOGGER_BUFFER_SIZE must be power of two");
 COREDUMP_DRAM_ATTR uint8_t min_logger_buffer[MIN_LOGGER_BUFFER_SIZE];
-
-static size_t dummy_ring_buffer_offset = 0;
-static portMUX_TYPE dummy_ring_buffer_offset_mutex = portMUX_INITIALIZER_UNLOCKED;
-static StaticRingbuffer_t ring_buffer_struct;
-static RingbufHandle_t min_logger_rtos_ring = nullptr;
-
-static void IRAM_ATTR write_dummy_ring_buffer(const void* msg, size_t msg_size) {
-    assert(msg_size < MIN_LOGGER_BUFFER_SIZE);
-
-    // Update write offset.
-    taskENTER_CRITICAL(&dummy_ring_buffer_offset_mutex);
-    void* write_ptr = ((char*)min_logger_buffer) + dummy_ring_buffer_offset;
-    size_t free_size = MIN_LOGGER_BUFFER_SIZE - dummy_ring_buffer_offset;
-    if (free_size < msg_size) {
-        dummy_ring_buffer_offset = msg_size - free_size;
-    } else {
-        dummy_ring_buffer_offset += msg_size;
-    }
-    taskEXIT_CRITICAL(&dummy_ring_buffer_offset_mutex);
-
-    // Since the offset has been updated, can write data outside of critical section.
-
-    // Wrap message around end of buffer.
-    if (free_size < msg_size) {
-        memcpy(write_ptr, msg, free_size);
-        write_ptr = min_logger_buffer;
-        msg = ((const char*)msg) + free_size;
-        msg_size -= free_size;
-    }
-
-    memcpy(write_ptr, msg, msg_size);
-}
-
-static void init_ring_buffer(size_t buffer_size) {
-    min_logger_rtos_ring = xRingbufferCreateStatic(buffer_size, RINGBUF_TYPE_BYTEBUF,
-                                                   min_logger_buffer, &ring_buffer_struct);
-}
+static constexpr uint8_t DATA_READY_BIT = (1 << 0);
+static LockFreeRingBuffer ring_buffer(min_logger_buffer, MIN_LOGGER_BUFFER_SIZE);
+static bool is_init = false;
 
     #if MIN_LOGGER_ENABLE_UDP
 
@@ -73,6 +43,9 @@ static void min_logger_udp_client_task(void* pvParameters) {
     auto parameters = reinterpret_cast<const UDPParameters*>(pvParameters);
     const size_t udp_message_size = parameters->udp_message_size;
 
+    LockFreeRingBufferReader reader(&ring_buffer);
+    LockFreeRingBufferReadResults results;
+
     struct sockaddr_in dest_addr;
     dest_addr.sin_addr.s_addr = inet_addr(parameters->hostname);
     dest_addr.sin_family = AF_INET;
@@ -85,7 +58,13 @@ static void min_logger_udp_client_task(void* pvParameters) {
 
     while (1) {
         // Check if a UDP packet's worth of data is ready to send.
-        if (xRingbufferGetCurFreeSize(min_logger_rtos_ring) <= udp_message_size) {
+        uint64_t bytes_available;
+        if (!reader.GetNewBytesResetIfOverflow(&bytes_available)) {
+            ESP_LOGE(TAG, "Fell behind");
+            continue;
+        }
+
+        if (bytes_available >= udp_message_size) {
             // Open Socket if needed.
             if (sock == -1) {
                 esp_netif_ip_info_t ip_info;
@@ -95,20 +74,22 @@ static void min_logger_udp_client_task(void* pvParameters) {
                 }
             }
 
-            // Even if socket is down, still need to drain buffer.
-            size_t read_size = 0;
-            // By always reading half the buffer size, the read will never be limitted by
-            // rolling over the end of the buffer.
-            void* held_data = xRingbufferReceiveUpTo(
-                min_logger_rtos_ring, &read_size, pdMS_TO_TICKS(portMAX_DELAY), udp_message_size);
-            assert(read_size == udp_message_size);
+            if (!reader.PeekAvailable(&results)) {
+                ESP_LOGE(TAG, "Fell behind");
+                continue;
+            }
+            // Since reads are always udp_message_size, and buffer is multiple
+            // of udp_message_size, should never need to tear read.
+            assert(results.part1_size >= udp_message_size);
 
             int err = 0;
             if (sock != -1) {
-                err = sendto(sock, held_data, udp_message_size, 0, (struct sockaddr*)&dest_addr,
+                err = sendto(sock, results.part1, udp_message_size, 0, (struct sockaddr*)&dest_addr,
                              sizeof(dest_addr));
             }
-            vRingbufferReturnItem(min_logger_rtos_ring, held_data);
+            if (!reader.MarkRead(udp_message_size)) {
+                ESP_LOGE(TAG, "Fell behind");
+            }
             if (err < 0) {
                 if (udp_up) {
                     ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
@@ -128,15 +109,15 @@ static void min_logger_udp_client_task(void* pvParameters) {
 
 void min_logger_init_udp(size_t packet_size, unsigned poll_interval_ms, const char* logging_udp_ip,
                          uint16_t logging_udp_port) {
-    // Buffer must be divisible by two
-    assert(MIN_LOGGER_BUFFER_SIZE >= packet_size * 2);
+    // buffer must be multiple of packet size.
+    assert(MIN_LOGGER_BUFFER_SIZE > packet_size);
+    assert(MIN_LOGGER_BUFFER_SIZE % packet_size == 0);
     // Can't init twice
-    assert(min_logger_rtos_ring == nullptr);
+    assert(!is_init);
     static UDPParameters parameters{.hostname = logging_udp_ip,
                                     .port = logging_udp_port,
                                     .poll_interval_ms = poll_interval_ms,
                                     .udp_message_size = packet_size};
-    init_ring_buffer(packet_size * 2);
     xTaskCreate(min_logger_udp_client_task, "min_logger_udp", 2048, &parameters, 1, NULL);
 }
 
@@ -144,22 +125,38 @@ void min_logger_init_udp(size_t packet_size, unsigned poll_interval_ms, const ch
 
 static void min_logger_uart_task(void* pvParameters) {
     auto uart_num = *reinterpret_cast<const uart_port_t*>(pvParameters);
+    LockFreeRingBufferReader reader(&ring_buffer);
+    LockFreeRingBufferReadResults results;
     while (1) {
-        size_t read_size = 0;
-        void* held_data =
-            xRingbufferReceive(min_logger_rtos_ring, &read_size, pdMS_TO_TICKS(portMAX_DELAY));
+        if (!reader.PeekAvailable(&results)) {
+            ESP_LOGE(TAG, "Fell behind");
+            continue;
+        }
 
-        uart_write_bytes(uart_num, held_data, read_size);
-        vRingbufferReturnItem(min_logger_rtos_ring, held_data);
+        if (results.part1_size > 0) {
+            uart_write_bytes(uart_num, results.part1, results.part1_size);
+            if(results.part2_size > 0) {
+                uart_write_bytes(uart_num, results.part2, results.part2_size);
+            }
+        }
+
+        if (!reader.MarkRead(results.Size())) {
+            ESP_LOGE(TAG, "Fell behind");
+        }
+
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
 
 void min_logger_init_uart(unsigned uart_num) {
     // Can't init twice
-    assert(min_logger_rtos_ring == nullptr);
+    assert(!is_init);
     static uart_port_t static_uart_num = (uart_port_t)uart_num;
-    init_ring_buffer(MIN_LOGGER_BUFFER_SIZE);
     xTaskCreate(min_logger_uart_task, "min_logger_uart", 1024, &static_uart_num, 1, NULL);
+}
+
+void __attribute__((weak)) IRAM_ATTR min_logger_write(const uint8_t* msg, size_t len_bytes) {
+    ring_buffer.Write(msg, len_bytes);
 }
 
     #ifdef __cplusplus

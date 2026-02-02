@@ -17,6 +17,8 @@ extern "C" {
         #define MIN_LOGGER_ENABLE_UDP 1
     #endif
 
+extern uint8_t min_logger_buffer[MIN_LOGGER_BUFFER_SIZE];
+
 void min_logger_init_uart(unsigned uart_num);
 
     #if MIN_LOGGER_ENABLE_UDP
