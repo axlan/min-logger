@@ -1,4 +1,4 @@
-#include "min_logger.h"
+#include "../min_logger.h"
 
 #if MIN_LOGGER_ENABLED && defined(MIN_LOGGER_BUFFERED_ESP32_PLATFORM)
 
@@ -51,6 +51,7 @@ static void min_logger_udp_client_task(void* pvParameters) {
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(parameters->port);
     bool udp_up = false;
+    bool buffer_misaligned = false;
 
     esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
 
@@ -59,13 +60,27 @@ static void min_logger_udp_client_task(void* pvParameters) {
     while (1) {
         if (!reader.PeekAvailable(&results)) {
             ESP_LOGE(TAG, "Fell behind");
+            buffer_misaligned = true;
             continue;
         }
         // Check if a UDP packet's worth of data is ready to send.
         if (results.Size() >= udp_message_size) {
-            // Since reads are always udp_message_size, and buffer is multiple
-            // of udp_message_size, should never need to tear read.
-            assert(results.part1_size >= udp_message_size);
+            // After dropping data, realign buffer.
+            if (buffer_misaligned) {
+                // The read tore, so move read head to start of buffer.
+                if (results.part1_size < udp_message_size) {
+                    if (!reader.MarkRead(results.part1_size)) {
+                        ESP_LOGE(TAG, "Fell behind");
+                    } else {
+                        buffer_misaligned = false;
+                    }
+                    continue;
+                }
+            } else {
+                // Since reads are always udp_message_size, and buffer is multiple
+                // of udp_message_size, should never need to tear read.
+                assert(results.part1_size >= udp_message_size);
+            }
 
             // Open Socket if needed.
             if (sock == -1) {
@@ -83,10 +98,15 @@ static void min_logger_udp_client_task(void* pvParameters) {
             }
             if (!reader.MarkRead(udp_message_size)) {
                 ESP_LOGE(TAG, "Fell behind");
+                buffer_misaligned = true;
             }
             if (err < 0) {
                 if (udp_up) {
-                    ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+                    if (errno == 12) {
+                        ESP_LOGW(TAG, "lwIP queue full. Is destination reachable?");
+                    } else {
+                        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+                    }
                     udp_up = false;
                 }
                 shutdown(sock, 0);
@@ -129,7 +149,7 @@ static void min_logger_uart_task(void* pvParameters) {
 
         if (results.part1_size > 0) {
             uart_write_bytes(uart_num, results.part1, results.part1_size);
-            if(results.part2_size > 0) {
+            if (results.part2_size > 0) {
                 uart_write_bytes(uart_num, results.part2, results.part2_size);
             }
         }
@@ -149,7 +169,7 @@ void min_logger_init_uart(unsigned uart_num) {
     xTaskCreate(min_logger_uart_task, "min_logger_uart", 1024, &static_uart_num, 1, NULL);
 }
 
-void __attribute__((weak)) IRAM_ATTR min_logger_write(const uint8_t* msg, size_t len_bytes) {
+void IRAM_ATTR min_logger_write(const uint8_t* msg, size_t len_bytes) {
     ring_buffer.Write(msg, len_bytes);
 }
 
