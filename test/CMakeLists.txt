@@ -1,3 +1,7 @@
 add_executable(cpp_crc_test cpp_crc_test.cpp)
 target_link_libraries(cpp_crc_test PRIVATE min_logger)
 add_test(NAME cpp_crc_test COMMAND cpp_crc_test)
+
+add_executable(lock_free_ring_buffer_test lock_free_ring_buffer_test.cpp)
+target_link_libraries(lock_free_ring_buffer_test PRIVATE min_logger)
+add_test(NAME lock_free_ring_buffer_test COMMAND lock_free_ring_buffer_test)

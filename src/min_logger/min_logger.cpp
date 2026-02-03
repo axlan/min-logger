@@ -3,11 +3,16 @@
 #if MIN_LOGGER_ENABLED
     #include <algorithm>
     #include <atomic>
-    #include <chrono>
     #include <cmath>
     #include <cstdio>
     #include <cstring>
-    #include <thread>
+
+#if defined(ESP32) || defined(ESP_PLATFORM)
+    #include <esp_attr.h>
+    #define MIN_LOGGER_FUNC_ATTR IRAM_ATTR
+#else
+    #define MIN_LOGGER_FUNC_ATTR
+#endif
 
 static constexpr uint32_t THREAD_NAME_MSG_ID = 0XFFFFFF00;
 static constexpr size_t PTHREAD_NAME_LEN = 16;
@@ -24,7 +29,7 @@ void min_logger_write_thread_names() { name_broadcast_count++; }
 // Converts elapsed time in nanoseconds to (scale, value) pair
 // Scale: 0=ns, 1=us, 2=ms, 3=s
 // Value: 0-999
-static std::pair<unsigned, unsigned> convertNanoseconds(uint64_t ns) {
+static std::pair<unsigned, unsigned> MIN_LOGGER_FUNC_ATTR convertNanoseconds(uint64_t ns) {
     unsigned scale = 0;
     uint64_t value = ns;
 
@@ -52,7 +57,7 @@ static std::pair<unsigned, unsigned> convertNanoseconds(uint64_t ns) {
     return {scale, static_cast<unsigned>(value)};
 }
 
-static size_t get_thread_idx() {
+static size_t MIN_LOGGER_FUNC_ATTR get_thread_idx() {
     if (local_thread_idx == -1) {
         local_thread_idx = thread_count++;
     }
@@ -61,24 +66,7 @@ static size_t get_thread_idx() {
 
 extern "C" {
 
-size_t __attribute__((weak)) min_logger_get_thread_name(char* thread_name, size_t max_len) {
-    auto thread = pthread_self();
-    if (pthread_getname_np(thread, thread_name, max_len) == 0) {
-        return strlen(thread_name);
-    }
-    return 0;
-}
-
-uint64_t __attribute__((weak)) min_logger_get_time_nanoseconds() {
-    auto time_since_epoch = std::chrono::steady_clock::now().time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(time_since_epoch).count();
-}
-
-void __attribute__((weak)) min_logger_write(const uint8_t* msg, size_t len_bytes) {
-    fwrite(msg, sizeof(uint8_t), len_bytes, stdout);
-}
-
-void send_thread_name_if_needed() {
+void MIN_LOGGER_FUNC_ATTR send_thread_name_if_needed() {
     // Handles overflow implicitly
     if (local_name_broadcast_count != name_broadcast_count) {
         local_name_broadcast_count = name_broadcast_count;
@@ -99,7 +87,7 @@ struct BinaryMsgHeader {
 };
     #pragma pack()  // Revert to default packing alignment
 
-void min_logger_default_binary_serializer(MinLoggerCRC msg_id, const void* payload,
+void MIN_LOGGER_FUNC_ATTR min_logger_default_binary_serializer(MinLoggerCRC msg_id, const void* payload,
                                           size_t payload_len, bool is_fixed_size) {
     send_thread_name_if_needed();
 
@@ -137,7 +125,7 @@ struct MicroMessageHeader {
 };
     #pragma pack()
 
-void min_logger_micro_binary_serializer(MinLoggerCRC msg_id, const void* payload,
+void MIN_LOGGER_FUNC_ATTR min_logger_micro_binary_serializer(MinLoggerCRC msg_id, const void* payload,
                                         size_t payload_len, bool is_fixed_size) {
     send_thread_name_if_needed();
     static std::atomic<uint64_t> last_timestamp_ns = {0};

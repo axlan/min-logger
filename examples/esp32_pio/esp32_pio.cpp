@@ -1,75 +1,52 @@
 #include <Arduino.h>
-#include "driver/uart.h"
-
 #include <min_logger.h>
 
-static constexpr size_t MAX_BUFFER_LEN = 4;
-static uint8_t buffer[MAX_BUFFER_LEN] = {0};
+#include "driver/uart.h"
 
-extern "C" {
-
-size_t min_logger_get_thread_name(char* thread_name, size_t max_len) { return 0; }
-
-uint64_t get_time_nanoseconds() { return micros() * 1000; }
-
-// Profile log call without actual write.
-void min_logger_write(const uint8_t* msg, size_t len_bytes) { memcpy(buffer, msg, MAX_BUFFER_LEN); }
+void setup() {
+    min_logger_set_serialize_format(MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT);
+    Serial.begin(115200);
 }
 
-void setup() { Serial.begin(115200); }
+#ifdef MIN_LOGGER_BUFFERED_ESP32_PLATFORM
 
 void loop() {
-
-    min_logger_set_serialize_format(MIN_LOGGER_MICRO_BINARY_SERIALIZED_FORMAT);
-
+    static bool switched_to_serial = false;
     auto start_time = micros();
 
-    for(int i =0; i < 1000; i++) {
+    for (int i = 0; i < MIN_LOGGER_BUFFER_SIZE / 4; i++) {
         MIN_LOGGER_LOG(MIN_LOGGER_INFO, "hello world");
     }
 
     auto elapsed = micros() - start_time;
 
-    Serial.printf("{%02x %02x %02x %02x}\n", buffer[0], buffer[1], buffer[2], buffer[3]);
+    Serial.printf("{%02x %02x %02x %02x}\n", min_logger_buffer[0], min_logger_buffer[1],
+                  min_logger_buffer[2], min_logger_buffer[3]);
 
-    // 2.93-3.01us per call
-    Serial.printf("1000 log calls took: %luus\n", elapsed);
+    Serial.printf("%d log calls took: %luus\n", MIN_LOGGER_BUFFER_SIZE, elapsed);
 
-    Serial.printf("UART_HW_FIFO_LEN: %u\n", UART_FIFO_LEN);
+    delay(10000);
 
-    delay(1000);
+    if (!switched_to_serial) {
+        switched_to_serial = true;
+        min_logger_init_uart(UART_NUM_0);
+    }
+}
 
-    start_time = micros();
-    Serial.print('\n');
-    elapsed = micros() - start_time;
+#else
 
-    // 17-37us per call
-    Serial.printf("1 char took: %luus\n", elapsed);
+void loop() {
+    static constexpr size_t NUM_WRITES = 256;
+    auto start_time = micros();
 
-    delay(1000);
+    for (int i = 0; i < NUM_WRITES / 4; i++) {
+        MIN_LOGGER_LOG(MIN_LOGGER_INFO, "hello world");
+    }
 
-    char dummy_buf[201];
-    memset(dummy_buf, 'a', 100);
-    dummy_buf[100] = 0;
-
-    start_time = micros();
-    Serial.print(dummy_buf);
-    elapsed = micros() - start_time;
-
-    // 26-35us per call
-    Serial.printf("\n100 char took: %luus\n", elapsed);
-
-    delay(1000);
-
-    memset(dummy_buf, 'a', 200);
-    dummy_buf[200] = 0;
-
-    start_time = micros();
-    Serial.print(dummy_buf);
-    elapsed = micros() - start_time;
-
-    // 10152-10167us per call
-    Serial.printf("\n200 char took: %luus\n", elapsed);
+    auto elapsed = micros() - start_time;
+    Serial.printf("%d log calls took: %luus\n", NUM_WRITES, elapsed);
 
     delay(10000);
 }
+
+#endif
